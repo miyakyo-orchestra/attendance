@@ -229,7 +229,7 @@
   function dateLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}`; }
   function longLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}曜日`; }
   function shortLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日`; }
-  function timeLabel(day) { return day.st && day.en ? `${day.st}から${day.en}` : day.st ? `${day.st}から` : ''; }
+  function timeLabel(day) { return day.st && day.en ? `${day.st}〜${day.en}` : day.st ? `${day.st}〜` : ''; }
   function metaLabel(day) { return [day.kind, timeLabel(day)].filter(Boolean).join(' '); }
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   function monthOf(d) { return d.slice(0, 7); }
