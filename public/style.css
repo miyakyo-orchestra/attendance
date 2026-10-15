@@ -33,6 +33,7 @@ body {
 }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
+button, a, label { touch-action: manipulation; } /* iPhone で二度押しの拡大を待たずにすぐ反応させる */
 button:disabled { cursor: default; }
 a { color: var(--blue); }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -237,6 +238,8 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .day-chip small { font-size: 11px; }
 .day-chip b { font-size: 17px; }
 .day-chip[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.roster-body { display: flex; flex-direction: column; gap: inherit; transition: opacity .15s; }
+.roster-body.loading { opacity: .45; }
 .cal-btn { flex: none; width: 44px; height: 56px; border-radius: 12px; border: 1px solid var(--field); background: var(--surface); display: flex; align-items: center; justify-content: center; color: var(--ink); padding: 0; }
 .cal-btn[aria-expanded="true"] { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 .sum-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
