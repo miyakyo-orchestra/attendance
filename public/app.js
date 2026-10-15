@@ -226,9 +226,9 @@
     return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   function parseDate(d) { const [y, m, dd] = d.split('-').map(Number); return { y, m, d: dd, wd: new Date(Date.UTC(y, m - 1, dd)).getUTCDay() }; }
-  function dateLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}`; }
-  function longLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}曜日`; }
-  function shortLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日`; }
+  function dateLabel(d) { const p = parseDate(d); return `${p.m}/${p.d}(${WEEKDAYS[p.wd]})`; }
+  function longLabel(d) { return dateLabel(d); }
+  function shortLabel(d) { return dateLabel(d); }
   function timeLabel(day) { return day.st && day.en ? `${day.st}〜${day.en}` : day.st ? `${day.st}〜` : ''; }
   function metaLabel(day) { return [day.kind, timeLabel(day)].filter(Boolean).join(' '); }
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
