@@ -1,0 +1,13 @@
+{
+  "name": "miyakyo-orchestra-attendance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "node --test --disable-warning=ExperimentalWarning test/*.test.js",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  }
+}

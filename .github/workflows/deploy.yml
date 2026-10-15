@@ -1,0 +1,49 @@
+# main に push すると、Cloudflare Workers に公開する（画面も API も一緒に）。
+# 使う秘密の値（GitHub のリポジトリの Settings > Secrets and variables > Actions に登録。手順は docs/公開手順.md）:
+#   CLOUDFLARE_API_TOKEN  … Cloudflare の API トークン（「Edit Cloudflare Workers」のひな形で作る）
+#   CLOUDFLARE_ACCOUNT_ID … Cloudflare のアカウント ID
+#   ADMIN_PASSWORD        … 管理用パスワード（Cloudflare の秘密の設定として登録する）
+# CLOUDFLARE_API_TOKEN が登録されていなければ、何もしない。
+name: Cloudflare に公開
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - name: 設定の確認
+        if: env.HAS_TOKEN != 'true'
+        run: echo "CLOUDFLARE_API_TOKEN が登録されていないので、公開しません。"
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/setup-node@v4
+        if: env.HAS_TOKEN == 'true'
+        with:
+          node-version: 22
+      - name: テスト
+        if: env.HAS_TOKEN == 'true'
+        run: npm test
+      - uses: cloudflare/wrangler-action@v3
+        if: env.HAS_TOKEN == 'true'
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: 4.151.0
+          command: deploy
+          secrets: |
+            ADMIN_PASSWORD

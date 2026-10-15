@@ -1,0 +1,22 @@
+# 宮教オケ 出欠（Cloudflare Workers）の設定。
+# main に push すると、GitHub Actions（.github/workflows/deploy.yml）がこの設定で Cloudflare に公開する。
+name = "miyakyo-orchestra-attendance"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# 画面のファイル。/api 以外はここから配る（回数に数えられない）
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api"]
+
+# 出欠の正本を置く Durable Object（worker.js の Main、中身は store.js）。
+# 無料のプランで使えるのは SQLite を使う形だけなので new_sqlite_classes にする。
+[[durable_objects.bindings]]
+name = "MAIN"
+class_name = "Main"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Main"]
