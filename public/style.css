@@ -96,6 +96,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .ghost.danger { color: var(--danger); }
 .ghost.icon { width: 38px; padding: 0; display: inline-grid; place-items: center; }
 .ghost.icon svg { width: 24px; height: 24px; }
+.ghost.icon:disabled { color: var(--grey); opacity: .45; }
 .link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 12px; min-height: 44px; }
 .icon { width: 44px; height: 44px; background: none; border: none; display: flex; align-items: center; justify-content: center; color: var(--sub); padding: 0; flex: none; }
 .icon svg { width: 20px; height: 20px; }
