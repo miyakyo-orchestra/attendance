@@ -263,7 +263,7 @@
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}"${state.view === v ? ' aria-current="page"' : ''}>${icon}<span>${l}</span></button>`).join('')}</nav>`;
+    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${state.view === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
 
   function top(right) {
