@@ -672,16 +672,7 @@
   // 管理: 団員と合言葉
   function adminMembers(a) {
     const sel = state.selMembers.filter((id) => a.members.some((m) => m.id === id));
-    return `<section class="card pad">
-        <div class="section-title"><h2>合言葉</h2><span class="badge${a.open ? ' on' : ''}">${a.open ? '設定済み' : '未設定'}</span></div>
-        <form data-form="passphrase" style="display:flex;gap:8px">
-          <label class="sr" for="passphrase">新しい合言葉</label>
-          <input class="input" id="passphrase" name="passphrase" autocomplete="off" minlength="4" maxlength="64" required>
-          <button class="ghost" type="submit" style="flex:none;min-height:48px">変える</button>
-        </form>
-      </section>
-
-      <section class="card">
+    return `<section class="card">
         <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
       </section>
       ${a.members.length ? memberGroups(a).map(([part, ms]) => `<section class="card">
@@ -693,7 +684,15 @@
             <label class="sr" for="role-${esc(m.id)}">${esc(m.name)}の役割</label>
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
           </div></div>`).join('')}
-      </section>`).join('') : '<div class="empty">まだいません</div>'}`;
+      </section>`).join('') : '<div class="empty">まだいません</div>'}
+      <details class="card pad fold"${a.open ? '' : ' open'}>
+        <summary><h2>合言葉</h2><span class="badge${a.open ? ' on' : ''}">${a.open ? '設定済み' : '未設定'}</span>${ICON.down}</summary>
+        <form data-form="passphrase" style="display:flex;gap:8px;margin-top:12px">
+          <label class="sr" for="passphrase">新しい合言葉</label>
+          <input class="input" id="passphrase" name="passphrase" autocomplete="off" minlength="4" maxlength="64" required>
+          <button class="ghost" type="submit" style="flex:none;min-height:48px">変える</button>
+        </form>
+      </details>`;
   }
   /** 団員をパートの並び順でまとめる。パートの一覧にないパートの人は最後に */
   function memberGroups(a) {
