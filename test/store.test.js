@@ -18,8 +18,16 @@ function setup(opts) {
   };
   let now = Date.parse('2026-10-15T03:00:00Z'); // 日本時間 10月15日 12時
   const store = new Store(db, Object.assign({ ADMIN_PASSWORD: 'admin-pass', ALLOWED_ORIGIN: 'https://orch.example.org' }, opts), () => now);
-  const call = (action, params, token, ip) => store.api({ action, params }, { token, ip: ip || '1.1.1.1' });
+  // テストでは氏名を name: '宮教 太郎' と書き、送るときに姓と名に分ける（スペースがなければ1文字目を姓に）
+  const call = (action, params, token, ip) => store.api({ action, params: splitName(params) }, { token, ip: ip || '1.1.1.1' });
   return { store, call, advance: (ms) => { now += ms; } };
+}
+
+function splitName(p) {
+  if (!p || p.name === undefined) return p;
+  const { name, ...rest } = p;
+  const w = name.trim().split(/[\s　]+/);
+  return w.length > 1 ? { ...rest, sei: w[0], mei: w.slice(1).join('') } : { ...rest, sei: name.slice(0, 1), mei: name.slice(1) };
 }
 
 async function ready() {
@@ -54,11 +62,13 @@ test('管理用パスワードが違えば入れず、続けば止まる', async
 
 test('登録・ログイン・出欠の入力', async () => {
   const t = await ready();
-  assert.equal((await t.call('register', { passphrase: 'wrong', name: 'A', part: 'Vn', pin: '1234' })).code, 'WRONG_PASSPHRASE');
-  assert.equal((await t.call('register', { passphrase: 'orchestra', name: 'A', part: 'Vn', pin: '12' })).ok, false);
+  assert.equal((await t.call('register', { passphrase: 'wrong', name: 'AB', part: 'Vn', pin: '1234' })).code, 'WRONG_PASSPHRASE');
+  assert.equal((await t.call('register', { passphrase: 'orchestra', name: 'AB', part: 'Vn', pin: '12' })).ok, false);
   const token = await join(t, ' 宮教  太郎 ', 'Vn');
   const home = await t.call('home', {}, token);
-  assert.equal(home.me.name, '宮教　太郎');
+  assert.equal(home.me.name, '宮教太郎'); // 姓と名はスペースなしでつなぐ
+  assert.equal(home.me.sei, '宮教');
+  assert.equal(home.me.mei, '太郎');
   assert.equal(home.days.length, 1);
   assert.deepEqual(home.answers, {});
   // 同じ氏名では登録できない
@@ -220,6 +230,22 @@ test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   assert.equal((await t.call('register', { passphrase: 'orchestra', name: '新しい人', part: 'Vn1', pin: '1234' })).ok, false);
 });
 
+test('姓と名を分けて登録し、前に登録した人も姓と名に分かれる', async () => {
+  const t = await ready();
+  // 姓か名が空なら登録できない
+  assert.equal((await t.call('register', { passphrase: 'orchestra', sei: '宮教', mei: ' ', part: 'Vn', pin: '1234' })).ok, false);
+  await join(t, '前の 人', 'Vn');
+  await join(t, '一語', 'Va');
+  // 前の形（間に全角スペース、またはスペースなし）に戻してから、作り直しの処理を流す
+  t.store.db.exec("ALTER TABLE members DROP COLUMN sei");
+  t.store.db.exec("ALTER TABLE members DROP COLUMN mei");
+  t.store.db.exec("UPDATE members SET name = '前の　人' WHERE name = '前の人'");
+  t.store.init();
+  const rows = t.store.db.exec('SELECT name, sei, mei FROM members ORDER BY name');
+  assert.deepEqual(rows.map((r) => ({ ...r })), [{ name: '一語', sei: '一語', mei: '' }, { name: '前の人', sei: '前の', mei: '人' }]);
+  assert.equal((await t.call('login', { sei: '前の', mei: '人', pin: '1234' })).ok, true);
+});
+
 test('ログインに合言葉は要らないが、同じ接続元からの誤りが続けば止まる', async () => {
   const t = await ready();
   await join(t, '鈴木', 'Hr', '1357');
@@ -379,13 +405,13 @@ test('年度でまとめて消す', async () => {
 
 test('団員をまとめて消す', async () => {
   const t = await ready();
-  const a = await join(t, 'A', 'Vc');
-  const b = await join(t, 'B', 'Vc');
-  await join(t, 'C', 'Vc');
+  const a = await join(t, 'A山', 'Vc');
+  const b = await join(t, 'B山', 'Vc');
+  await join(t, 'C山', 'Vc');
   const ids = [(await t.call('home', {}, a)).me.id, (await t.call('home', {}, b)).me.id];
   const r = await t.call('deleteMembers', { ids }, t.adminToken);
   assert.equal(r.deleted, 2);
-  assert.deepEqual((await t.call('adminData', {}, t.adminToken)).members.map((m) => m.name), ['C']);
+  assert.deepEqual((await t.call('adminData', {}, t.adminToken)).members.map((m) => m.name), ['C山']);
 });
 
 test('パートを足し引きできる', async () => {

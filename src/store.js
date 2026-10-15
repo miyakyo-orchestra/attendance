@@ -84,6 +84,19 @@ export class Store {
     if (!this.db.exec("SELECT 1 FROM pragma_table_info('answers') WHERE name = 'at'").length) {
       x("ALTER TABLE answers ADD COLUMN at TEXT NOT NULL DEFAULT ''"); // 遅刻・早退の時刻（2026-10-15 から）
     }
+    // 2026-10-15 から姓と名を分けて持つ。氏名（name）は姓と名をスペースなしでつないだもの
+    if (!this.db.exec("SELECT 1 FROM pragma_table_info('members') WHERE name = 'sei'").length) {
+      x("ALTER TABLE members ADD COLUMN sei TEXT NOT NULL DEFAULT ''");
+      x("ALTER TABLE members ADD COLUMN mei TEXT NOT NULL DEFAULT ''");
+      // 前に登録した人は、氏名の中のスペースで姓と名に分ける。スペースがなければ全部を姓に入れる（設定で直せる）
+      for (const m of this.db.exec('SELECT id, name FROM members')) {
+        const [sei, ...rest] = m.name.split(/[\s　]+/).filter(Boolean);
+        const mei = rest.join('');
+        const name = (sei || '') + mei;
+        const clash = this.db.exec('SELECT 1 FROM members WHERE name = ? AND id <> ?', name, m.id).length;
+        this.db.exec('UPDATE members SET sei = ?, mei = ?, name = ? WHERE id = ?', sei || m.name, mei, clash ? m.name : name, m.id);
+      }
+    }
     // ログインの印。token は元に戻せない形（SHA-256）で置く。member_id が空なら管理用パスワードでのログイン
     x(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, member_id TEXT NOT NULL DEFAULT '',
       created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
@@ -182,6 +195,8 @@ export class Store {
     return {
       id: m ? m.id : '',
       name: m ? m.name : '管理者',
+      sei: m ? m.sei : '',
+      mei: m ? m.mei : '',
       part: m ? m.part : '',
       role: who.role,
       canReadReasons: who.role === 'officer' || who.role === 'admin',
@@ -241,30 +256,30 @@ const PUBLIC = {
   },
 
   async register(p, c) {
-    const name = cleanName(p.name);
+    const { name, sei, mei } = personName(p);
     const part = String(p.part || '');
     const pin = String(p.pin || '');
-    if (!name) return fail('氏名を入れてください。');
+    if (!name) return fail('姓と名を入れてください。');
     if (!this.partIds().includes(part)) return fail('パートを選んでください。');
     if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
     await this.checkPassphrase(p.passphrase, c.ip);
     const pinHash = await hashSecret(pin);
-    if (this.db.exec('SELECT 1 FROM members WHERE name = ?', name).length) return fail('同じ氏名の人がすでに登録しています。ログインしてください。', 'DUPLICATE');
+    if (this.db.exec(`SELECT 1 FROM members WHERE ${SAME_NAME}`, bare(name)).length) return fail('同じ氏名の人がすでに登録しています。ログインしてください。', 'DUPLICATE');
     const id = randomId(9);
-    this.db.exec('INSERT INTO members (id, name, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      id, name, part, 'member', pinHash, new Date(this.now()).toISOString());
+    this.db.exec('INSERT INTO members (id, name, sei, mei, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, name, sei, mei, part, 'member', pinHash, new Date(this.now()).toISOString());
     const token = await this.newSession(id);
     const who = { member: this.db.exec('SELECT * FROM members WHERE id = ?', id)[0], role: 'member' };
     return { ok: true, token, me: this.meOf(who) };
   },
 
   async login(p, c) {
-    const name = cleanName(p.name);
+    const { name, sei, mei } = personName(p);
     const pin = String(p.pin || '');
-    if (!name || !pin) return fail('氏名と暗証番号を入れてください。');
+    if (!name || !pin) return fail('姓・名と暗証番号を入れてください。');
     // 合言葉は登録のときだけ。ログインは氏名と暗証番号で、同じ接続元からの誤りが続けば止める
     this.checkGate(c.ip);
-    const m = this.db.exec('SELECT * FROM members WHERE name = ?', name)[0];
+    const m = this.db.exec(`SELECT * FROM members WHERE ${SAME_NAME}`, bare(name))[0];
     // 登録がない氏名でも、暗証番号の計算は同じだけ行う（登録の有無を、かかる時間から知られないため）
     const ok = await verifySecret(pin, m ? m.pin : DUMMY_HASH);
     if (!m) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
@@ -363,13 +378,13 @@ const PRIVATE = {
 
   /** 自分の氏名・パートを直す */
   updateProfile: ['member', function (p, who) {
-    const name = cleanName(p.name);
+    const { name, sei, mei } = personName(p);
     const part = String(p.part || '');
-    if (!name) return fail('氏名を入れてください。');
+    if (!name) return fail('姓と名を入れてください。');
     if (!this.partIds().includes(part)) return fail('パートを選んでください。');
-    const same = this.db.exec('SELECT id FROM members WHERE name = ? AND id <> ?', name, who.member.id);
+    const same = this.db.exec(`SELECT id FROM members WHERE ${SAME_NAME} AND id <> ?`, bare(name), who.member.id);
     if (same.length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
-    this.db.exec('UPDATE members SET name = ?, part = ? WHERE id = ?', name, part, who.member.id);
+    this.db.exec('UPDATE members SET name = ?, sei = ?, mei = ?, part = ? WHERE id = ?', name, sei, mei, part, who.member.id);
     const m = this.db.exec('SELECT * FROM members WHERE id = ?', who.member.id)[0];
     return { ok: true, me: this.meOf({ member: m, role: m.role }) };
   }],
@@ -613,10 +628,19 @@ function dayFields(p) {
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
 
-/** 氏名の空白をそろえる（前後を除き、続く空白は全角1つに） */
-function cleanName(v) {
-  return String(v || '').replace(/[\s　]+/g, '　').replace(/^　|　$/g, '').slice(0, LIMITS.NAME);
+/**
+ * 姓と名から氏名を作る。姓・名の中のスペースは除き、氏名は姓と名をスペースなしでつなぐ（例: 宮教太郎）。
+ * 姓と名のどちらかが空なら name を空で返す
+ */
+function personName(p) {
+  const sei = String(p.sei || '').replace(/[\s　]+/g, '').slice(0, LIMITS.NAME);
+  const mei = String(p.mei || '').replace(/[\s　]+/g, '').slice(0, LIMITS.NAME);
+  if (!sei || !mei) return { name: '', sei, mei };
+  return { name: (sei + mei).slice(0, LIMITS.NAME), sei, mei };
 }
+/** 氏名をスペース抜きで比べる（前の登録で残ったスペースがあっても同じ人として扱う） */
+const SAME_NAME = "REPLACE(REPLACE(name, '　', ''), ' ', '') = ?";
+function bare(name) { return name.replace(/[\s　]+/g, ''); }
 function cleanText(v, max) {
   // 制御文字を除く（改行とタブは残す）
   return String(v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);

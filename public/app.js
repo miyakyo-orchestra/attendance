@@ -282,6 +282,11 @@
     return (state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '')
       + (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '');
   }
+  /** 姓と名の欄（姓と名はスペースなしでつないで氏名にする） */
+  function nameFields(me) {
+    const v = (k) => (me ? ` value="${esc(me[k] || '')}"` : '');
+    return `<div class="row"><label class="field">姓<input class="input" name="sei" placeholder="宮教"${v('sei')} autocomplete="family-name" maxlength="15" required></label><label class="field">名<input class="input" name="mei" placeholder="太郎"${v('mei')} autocomplete="given-name" maxlength="15" required></label></div>`;
+  }
   function partPicker(selected) {
     const chip = (p) => `<label class="chip"><input type="radio" name="part" value="${esc(p.id)}"${p.id === selected ? ' checked' : ''}><span>${esc(p.id)}</span></label>`;
     return `<fieldset><legend>パート</legend>
@@ -306,7 +311,7 @@
         ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
         <form data-form="register" style="display:flex;flex-direction:column;gap:20px">
           <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
-          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="name" maxlength="30" required></label>
+          ${nameFields()}
           ${partPicker('')}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
           <button class="cta" type="submit">登録する</button>
@@ -315,7 +320,7 @@
     } else {
       body = `<h1>ログイン</h1>
         <form data-form="login" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="username" maxlength="30" required></label>
+          ${nameFields()}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4〜8桁の数字" required></label>
           <button class="${PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
@@ -536,7 +541,7 @@
       ${messages()}
       <section class="card pad">
         <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
+          ${nameFields(state.me)}
           ${partPicker(state.me.part)}
           <button class="cta" type="submit">保存</button>
         </form>
