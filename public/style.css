@@ -36,8 +36,7 @@ a { color: var(--blue); }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.app { max-width: 520px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column; }
-.app.wide { max-width: 760px; }
+.app { max-width: 430px; margin: 0 auto; /* PC でもスマホと同じ幅で出す */ min-height: 100dvh; display: flex; flex-direction: column; }
 
 /* 上の帯 */
 .top { padding: 16px 20px 12px; padding-top: max(16px, env(safe-area-inset-top)); display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 60px; }
@@ -119,7 +118,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .day .meta { font-size: 13px; color: var(--sub); }
 .day.past .date { color: var(--sub); }
 .pill { flex: none; font-size: 13px; font-weight: 500; padding: 4px 10px; border-radius: 999px; background: var(--muted); color: var(--sub); }
-.pill.attend { background: var(--blue-soft); color: var(--blue); }
+.pill.attend { background: var(--blue); color: var(--on-accent); }
 .pill.absent { background: var(--amber-soft); color: var(--amber-ink); }
 
 /* カレンダー */
@@ -156,6 +155,12 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
   display: flex; align-items: center; justify-content: center; min-height: 72px; border-radius: 12px;
   font-size: 18px; font-weight: 700; background: var(--surface); border: 1px solid var(--field);
 }
+.choice span { --c: var(--grey); gap: 8px; }
+.choice span.attend { --c: var(--blue); }
+.choice span.late, .choice span.early { --c: var(--blue-mid); }
+.choice span.absent { --c: var(--amber); }
+.choice span::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.choice input:checked + span::before { display: none; }
 .choice input:checked + span.attend { background: var(--blue); color: var(--on-accent); border-color: var(--blue); }
 .choice input:checked + span.absent { background: var(--amber-ink); color: var(--on-accent); border-color: var(--amber-ink); }
 .choice input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -196,10 +201,9 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .bar .absent { background: var(--amber); }
 .counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .counts div { display: flex; flex-direction: column; gap: 2px; }
-.counts small { font-size: 12px; color: var(--sub); }
+.counts small { font-size: 12px; color: var(--sub); display: flex; align-items: center; gap: 5px; }
+.counts small .dot { width: 8px; height: 8px; flex: none; }
 .counts b { font-size: 24px; }
-.counts .attend b { color: var(--blue); }
-.counts .absent b { color: var(--amber-ink); }
 .filter-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .filter-row .seg { width: 200px; }
 .part-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
@@ -224,10 +228,6 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .form-grid .full { grid-column: 1 / -1; }
 .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--muted); color: var(--sub); font-weight: 500; }
 .badge.on { background: var(--blue-soft); color: var(--blue); }
-
-@media (min-width: 600px) {
-  main { padding-left: 24px; padding-right: 24px; }
-}
 
 /* 練習日をまとめて足すカレンダー（管理） */
 .cal.pick { padding: 0; }
@@ -257,12 +257,13 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .offer .link { align-self: center; }
 
 /* 遅刻・早退（出席の仲間なので青の薄い色） */
-.pill.late, .pill.early { background: var(--blue-soft); color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue-mid); }
+.pill.late, .pill.early { background: var(--blue-soft); color: var(--blue); }
+/* これからの日で未回答: 枠つきで目立たせる */
+.pill.todo { background: none; color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--ink); }
 .dot.late, .dot.early { background: var(--blue-mid); border: none; }
 .bar .late { background: var(--blue-mid); }
-.counts .late b { color: var(--blue); }
 .counts small { white-space: nowrap; }
-.choice input:checked + span.late, .choice input:checked + span.early { background: var(--blue-soft); color: var(--blue); border-color: var(--blue); }
+.choice input:checked + span.late, .choice input:checked + span.early { background: var(--blue-mid); color: var(--ink); border-color: var(--blue-mid); }
 
 /* パート別: 出席の人をまとめた行 */
 .attend-row { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; min-height: 44px; background: none; border: none; border-top: 1px solid var(--line); font-size: 14px; color: var(--blue); font-weight: 500; }
@@ -276,15 +277,16 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .list-row .main { flex: 1; }
 
 /* 下のタブ */
-.app.has-tabs main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+.app.has-tabs main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
 .tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center;
-  background: var(--surface); border-top: 1px solid var(--line); padding: 4px 8px max(4px, env(safe-area-inset-bottom));
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center; max-width: 430px; margin: 0 auto;
+  background: var(--surface); border-top: 1px solid var(--line); padding: 0 8px max(0px, calc(env(safe-area-inset-bottom) - 14px)); /* iPhone の下の線の分は少しだけ空ける */
 }
 .tabs button {
-  flex: 1; max-width: 160px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  background: none; border: none; color: var(--sub); font-size: 11px; font-weight: 500;
+  flex: 1; max-width: 160px; min-height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  background: none; border: none; color: var(--sub); font-size: 10px; font-weight: 500; line-height: 1.2;
 }
+.tabs button svg { width: 20px; height: 20px; }
 .tabs button[aria-current="page"] { color: var(--ink); }
 .tabs button[aria-current="page"] svg { stroke-width: 2.4; }
 
@@ -296,3 +298,17 @@ main.auth h1 { font-size: 26px; }
 .auth-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
 .auth-bottom .cta { min-height: 56px; }
 .auth-alt.small .link { color: var(--sub); font-size: 13px; }
+
+/* 戻るボタンと見出しを同じ行に */
+.title-row { display: flex; align-items: center; gap: 2px; }
+.title-row .back { margin-left: -12px; flex: none; }
+/* 右上の名前: 押すとメニューが開くことがわかるよう、下向きの印をつける */
+.who > summary { display: flex; align-items: center; gap: 2px; color: var(--ink); }
+.who > summary svg { width: 16px; height: 16px; color: var(--sub); }
+/* 次の練習 */
+.next-day { padding-top: 12px; }
+.next-label { display: block; padding: 0 16px; font-size: 12px; font-weight: 600; color: var(--blue); }
+.next-day .day .date { font-size: 20px; }
+/* 月ごとの区切り */
+.month-group { display: flex; flex-direction: column; gap: 8px; }
+.month-label { margin: 0; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--sub); }

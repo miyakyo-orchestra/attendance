@@ -244,7 +244,6 @@
 
   // ---------------- 画面の組み立て ----------------
   function render() {
-    app.classList.toggle('wide', state.view === 'admin');
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
     const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, offer: viewOffer };
     closeTip();
@@ -256,13 +255,13 @@
     if (state.busy) setBusy(true);
   }
 
-  // 下のタブ。練習日・パート別・管理（役職と管理者）
+  // 下のタブ。練習日・一覧・管理（役職と管理者）
   const TAB_VIEWS = ['home', 'roster', 'admin'];
   function tabs() {
     if (!state.me) return '';
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
-    items.push(['roster', 'パート別', 'go-roster', ICON.people]);
+    items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}"${state.view === v ? ' aria-current="page"' : ''}>${icon}<span>${l}</span></button>`).join('')}</nav>`;
   }
@@ -273,7 +272,7 @@
   function whoMenu() {
     if (!state.me) return '';
     const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
-    return `<details class="who"><summary>${label}</summary><div class="menu">
+    return `<details class="who"><summary>${label}${ICON.down}</summary><div class="menu">
       ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
       <button data-act="logout">ログアウト</button>
     </div></details>`;
@@ -346,14 +345,34 @@
     const past = state.days.filter((d) => d.date < state.today).reverse();
     const row = (d, isPast) => {
       const st = statusOf(d.id);
+      // これからの日でまだ答えていないものは、枠つきの札で目立たせる
+      const todo = !isPast && st === 'none' ? ' todo' : '';
       return `<button class="day${isPast ? ' past' : ''}" data-act="open-day" data-id="${esc(d.id)}">
         <span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
-        ${isMember() ? `<span class="pill ${st}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : ''}
+        ${isMember() ? `<span class="pill ${st}${todo}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : ''}
       </button>`;
     };
-    let html = upcoming.length
-      ? `<div class="card">${upcoming.map((d) => row(d, false)).join('')}</div>`
-      : '<div class="empty">予定の練習日はありません</div>';
+    let html = '';
+    if (!upcoming.length) html = '<div class="empty">予定の練習日はありません</div>';
+    else {
+      // 次の練習は一つだけ大きく出し、その先は月ごとに区切る
+      const [next, ...rest] = upcoming;
+      html = `<div class="card next-day"><span class="next-label">次の練習</span>${row(next, false)}</div>`;
+      const year = parseDate(state.today).y;
+      let cur = '';
+      let group = [];
+      const flush = () => {
+        if (!group.length) return;
+        const [y, m] = cur.split('-').map(Number);
+        html += `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2><div class="card">${group.map((d) => row(d, false)).join('')}</div></div>`;
+        group = [];
+      };
+      for (const d of rest) {
+        if (monthOf(d.date) !== cur) { flush(); cur = monthOf(d.date); }
+        group.push(d);
+      }
+      flush();
+    }
     if (past.length) {
       html += `<button class="link" data-act="toggle-past" aria-expanded="${state.showPast}" style="align-self:center">過去の練習日</button>`;
       if (state.showPast) html += `<div class="card">${past.map((d) => row(d, true)).join('')}</div>`;
@@ -403,9 +422,8 @@
     const past = d.date < state.today;
     const dis = past ? ' disabled' : '';
     return top(whoMenu()) + `<main>
-      <button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button>
       <div style="display:flex;flex-direction:column;gap:4px">
-        <h1 class="title-date">${esc(longLabel(d.date))}</h1>
+        <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1 class="title-date">${esc(longLabel(d.date))}</h1></div>
         <p class="title-meta">${esc(metaLabel(d))}</p>
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
@@ -471,7 +489,7 @@
           <div class="sum-head"><h1 style="font-size:17px">${esc(longLabel(r.day.date))}</h1><span>${groupLabel} ${shown.length}人</span></div>
           ${metaLabel(r.day) ? `<span style="font-size:13px;color:var(--sub);margin-top:-8px">${esc(metaLabel(r.day))}</span>` : ''}
           <div class="bar" aria-hidden="true"><span class="attend" style="width:${t.attend / all * 100}%"></span><span class="late" style="width:${part / all * 100}%"></span><span class="absent" style="width:${t.absent / all * 100}%"></span></div>
-          <div class="counts"><div class="attend"><small>出席</small><b>${t.attend}</b></div><div class="late"><small>遅刻・早退</small><b>${part}</b></div><div class="absent"><small>欠席</small><b>${t.absent}</b></div><div><small>未回答</small><b>${t.none}</b></div></div>
+          <div class="counts"><div class="attend"><small><i class="dot attend"></i>出席</small><b>${t.attend}</b></div><div class="late"><small><i class="dot late"></i>遅刻・早退</small><b>${part}</b></div><div class="absent"><small><i class="dot absent"></i>欠席</small><b>${t.absent}</b></div><div><small><i class="dot none"></i>未回答</small><b>${t.none}</b></div></div>
         </section>
         <div class="filter-row">
           <div class="seg" role="group" aria-label="絞り込み">
@@ -496,8 +514,7 @@
   function viewProfile() {
     const keys = state.passkeys;
     return top(whoMenu()) + `<main>
-      <button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button>
-      <h1>設定</h1>
+      <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1>設定</h1></div>
       ${messages()}
       <section class="card pad">
         <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
@@ -640,14 +657,25 @@
 
       <section class="card">
         <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
-        ${a.members.length ? a.members.map((m) => `<div class="list-row">
+      </section>
+      ${a.members.length ? memberGroups(a).map(([part, ms]) => `<section class="card">
+        <div class="part-head"><h2>${esc(part)}</h2><span>${ms.length}人</span></div>
+        ${ms.map((m) => `<div class="list-row">
           <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選ぶ</span></label>
-          <div class="main"><b>${esc(m.name)}</b><small>${esc(m.part)}</small></div>
+          <div class="main"><b>${esc(m.name)}</b></div>
           <div class="actions">
             <label class="sr" for="role-${esc(m.id)}">${esc(m.name)}の役割</label>
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
-          </div></div>`).join('') : '<div class="empty">まだいません</div>'}
-      </section>`;
+          </div></div>`).join('')}
+      </section>`).join('') : '<div class="empty">まだいません</div>'}`;
+  }
+  /** 団員をパートの並び順でまとめる。パートの一覧にないパートの人は最後に */
+  function memberGroups(a) {
+    const order = a.parts.map((p) => p.id);
+    const by = {};
+    a.members.forEach((m) => { (by[m.part] = by[m.part] || []).push(m); });
+    const extra = Object.keys(by).filter((k) => !order.includes(k)).sort();
+    return [...order, ...extra].filter((k) => by[k]).map((k) => [k, by[k]]);
   }
 
   // 管理: パートの足し引き
