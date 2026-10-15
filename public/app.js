@@ -159,6 +159,17 @@
   }
 
   // ---------------- 小さな道具 ----------------
+  /** i ボタンと、押すと出る吹き出し */
+  function tip(id, label, text) {
+    return `<span class="tip"><button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="${id}" aria-label="${esc(label)}">${ICON.info}</button><span id="${id}" class="tip-body" role="tooltip" hidden>${esc(text)}</span></span>`;
+  }
+  function closeTips(except) {
+    app.querySelectorAll('.info[aria-expanded="true"]').forEach((b) => {
+      if (b === except) return;
+      b.setAttribute('aria-expanded', 'false');
+      document.getElementById(b.getAttribute('aria-controls')).hidden = true;
+    });
+  }
   /** CSV をファイルとして保存させる。先頭の印（BOM）があると、Excel でも文字化けしない */
   function download(csv, name) {
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
@@ -261,14 +272,16 @@
         <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>`;
     } else {
       body = `<h1>ログイン</h1>
-        ${PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button><div class="or" aria-hidden="true">または</div>' : ''}
         <form data-form="login" style="display:flex;flex-direction:column;gap:20px">
           <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="username" maxlength="30" required></label>
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4〜8桁の数字" required></label>
           <button class="${PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
         <p class="auth-alt">はじめての方は<button class="link" data-act="auth-mode" data-mode="register">登録</button></p>
-        <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button></p>`;
+        <div class="auth-bottom">
+          ${PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button>' : ''}
+          <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button></p>
+        </div>`;
     }
     return top() + `<main class="auth">${messages()}${body}</main>`;
   }
@@ -366,9 +379,8 @@
         <div class="reason-box" style="display:flex;flex-direction:column;gap:8px"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
             <label for="reason">欠席の理由 任意</label>
-            <button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="reason-note" aria-label="理由を読める人">${ICON.info}</button>
+            ${tip('reason-note', '理由を読める人', '理由を読めるのは本人と役職・管理者だけです。')}
           </div>
-          <p id="reason-note" class="note" role="note" hidden>理由を読めるのは本人と役職・管理者だけです。</p>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
         ${past ? '' : `<button class="cta" type="submit"${a.status && a.status !== 'attend' ? '' : ' hidden'}>送信</button>`}
@@ -454,7 +466,6 @@
       </section>
       ${PASSKEY ? `<section class="card">
         <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo('passkey-note')}</div><span>${keys ? keys.length + '個' : ''}</span></div>
-        ${passkeyNote('passkey-note')}
         ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(shortLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(shortLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
           <div class="actions"><button class="ghost danger" data-act="passkey-delete" data-id="${esc(k.id)}">消す</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
@@ -464,17 +475,13 @@
 
   // パスキーの説明（i ボタンで開く）
   function passkeyInfo(id) {
-    return `<button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="${id}" aria-label="パスキーとは">${ICON.info}</button>`;
-  }
-  function passkeyNote(id) {
-    return `<p id="${id}" class="note" role="note" hidden>パスキーを作ると、次からは指紋や顔、端末の画面ロックだけでログインでき、氏名と暗証番号を入れずに済みます。パスキーは端末の中に保存され、この画面のサイト以外では使えないので、盗み見られたり、ほかのサイトに入力させられたりする心配がありません。iPhone なら iCloud キーチェーン、Android なら Google パスワード マネージャーに保存され、同じアカウントで使っている別の端末でもそのまま使えます。暗証番号でのログインも、これまでどおり使えます。</p>`;
+    return tip(id, 'パスキーとは', '指紋や顔、画面ロックでログインできるようになります。暗証番号でのログインも使えます。');
   }
 
   // 登録やログインのすぐあとに、パスキーを作るよう勧める
   function viewOffer() {
     return top(whoMenu()) + `<main class="offer">
       <div class="offer-head"><h1>パスキーを作りますか</h1>${passkeyInfo('offer-note')}</div>
-      ${passkeyNote('offer-note')}
       ${messages()}
       <button class="cta" data-act="passkey-create">作る</button>
       <button class="link" data-act="go-home">あとで</button>
@@ -569,10 +576,9 @@
         </form>
       </section>` : `<section class="card pad">
         <div class="section-title">
-          <div class="label-row"><h2>練習日を足す</h2><button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="pick-note" aria-label="選びかた">${ICON.info}</button></div>
+          <div class="label-row"><h2>練習日を足す</h2>${tip('pick-note', '選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
           ${state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}
         </div>
-        <p id="pick-note" class="note" role="note" hidden>日付を押して何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。</p>
         ${pickCalendar()}
         <form data-form="days" class="form-grid">
           ${dayFields(state.draft)}
@@ -779,10 +785,18 @@
       Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, admin: null, flash: '' });
     }),
     'info': (el) => {
-      const note = document.getElementById(el.getAttribute('aria-controls'));
-      const open = note.hidden;
-      note.hidden = !open;
+      closeTips(el);
+      const body = document.getElementById(el.getAttribute('aria-controls'));
+      const open = body.hidden;
+      body.hidden = !open;
       el.setAttribute('aria-expanded', String(open));
+      if (!open) return;
+      // 吹き出しが画面の端からはみ出さないよう、横の位置を寄せる
+      body.style.setProperty('--shift', '0px');
+      const r = body.getBoundingClientRect();
+      const edge = 12;
+      const shift = r.left < edge ? edge - r.left : r.right > window.innerWidth - edge ? window.innerWidth - edge - r.right : 0;
+      body.style.setProperty('--shift', shift + 'px');
     },
     'roster-day': (el) => run(async () => { state.rosterCal = false; await loadRoster(el.dataset.id); }),
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
@@ -947,6 +961,7 @@
   document.addEventListener('click', (ev) => {
     const open = app.querySelector('details.who[open]');
     if (open && !open.contains(ev.target)) open.open = false;
+    if (!ev.target.closest('.tip')) closeTips();
   });
   window.addEventListener('hashchange', () => {
     if (location.hash === '#admin' && state.view === 'auth') { state.authMode = 'admin'; render(); }

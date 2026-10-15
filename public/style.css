@@ -159,7 +159,18 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .choice input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
 .choice input:disabled + span { opacity: 0.6; }
 .label-row { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; color: var(--sub); }
-.info { width: 32px; height: 32px; background: none; border: none; padding: 0; display: flex; align-items: center; justify-content: center; color: var(--sub); }
+/* i ボタンと吹き出し */
+.tip { position: relative; display: inline-flex; vertical-align: middle; }
+.info { width: 32px; height: 32px; margin: -6px 0; background: none; border: none; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 50%; }
+.info svg { width: 18px; height: 18px; }
+.info:hover, .info[aria-expanded="true"] { color: var(--ink); }
+.tip .tip-body {
+  position: absolute; z-index: 30; top: calc(100% + 8px); left: 50%; transform: translateX(calc(-50% + var(--shift, 0px)));
+  width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 10px;
+  background: var(--ink); color: var(--on-ink); font-size: 13px; font-weight: 400; line-height: 1.6; text-align: left; white-space: normal;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.tip .tip-body::before { content: ''; position: absolute; top: -5px; left: calc(50% - 5px - var(--shift, 0px)); width: 10px; height: 10px; background: var(--ink); transform: rotate(45deg); border-radius: 2px; }
 .note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--muted); font-size: 13px; line-height: 1.7; }
 
 /* パート別の出欠 */
@@ -238,7 +249,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .pad-box { padding: 12px 16px 16px; }
 .offer { justify-content: center; gap: 20px; padding-bottom: 20vh; }
-.offer-head { display: flex; justify-content: center; align-items: center; gap: 4px; }
+.offer-head { display: flex; justify-content: center; align-items: center; gap: 2px; }
 .offer h1 { text-align: center; }
 .offer .link { align-self: center; }
 
@@ -273,12 +284,13 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 }
 .tabs button[aria-current="page"] { color: var(--ink); }
 .tabs button[aria-current="page"] svg { stroke-width: 2.4; }
-.card > .note { margin: 12px 16px 0; }
 
 /* ログイン・登録 */
 main.auth { gap: 20px; padding-top: 24px; }
 main.auth h1 { font-size: 26px; }
 .auth-alt { margin: 0; display: flex; justify-content: center; align-items: center; font-size: 14px; color: var(--sub); }
 .auth-alt .link { padding: 12px 6px; }
-.auth-alt.small { margin-top: auto; }
+.auth-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
+.auth-bottom .cta { min-height: 56px; }
 .auth-alt.small .link { color: var(--sub); font-size: 13px; }
+.card:has(.tip) { overflow: visible; }
