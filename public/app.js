@@ -49,6 +49,9 @@
     rosterMonth: '',
     admin: null,
     editDay: null,
+    pickMonth: '', // 練習日をまとめて足すカレンダーの月
+    picked: [], // 選んだ日付
+    draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
   };
 
   // ---------------- サーバーとのやりとり ----------------
@@ -154,7 +157,7 @@
     } else {
       const reg = mode === 'register';
       body = `<div class="seg" role="group" aria-label="登録かログイン">
-          <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">はじめて</button>
+          <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">登録</button>
           <button type="button" data-act="auth-mode" data-mode="login" aria-pressed="${!reg}">ログイン</button>
         </div>
         ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
@@ -342,6 +345,52 @@
   }
 
   // 管理
+  /** 練習日の種類・時刻・メモの欄 */
+  function dayFields(v) {
+    return `<label class="field full">種類<input class="input" name="kind" list="kinds" value="${esc(v.kind || '')}" maxlength="20"></label>
+      <datalist id="kinds"><option value="合奏"><option value="分奏"><option value="パート練習"><option value="本番"></datalist>
+      <label class="field">開始<input class="input" type="time" name="st" value="${esc(v.st || '')}"></label>
+      <label class="field">終了<input class="input" type="time" name="en" value="${esc(v.en || '')}"></label>
+      <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>`;
+  }
+
+  /** 練習日をまとめて足すときの、日付を何日でも選べるカレンダー */
+  function pickCalendar() {
+    const ym = state.pickMonth;
+    const [y, m] = ym.split('-').map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const has = new Set(state.admin.days.map((d) => d.date));
+    let cells = '';
+    for (let i = 0; i < first; i++) cells += '<div class="cal-cell"></div>';
+    for (let n = 1; n <= count; n++) {
+      const date = `${ym}-${String(n).padStart(2, '0')}`;
+      const on = state.picked.includes(date);
+      const label = `${m}月${n}日${has.has(date) ? ' 練習日あり' : ''}`;
+      cells += `<div class="cal-cell"><button type="button" class="pick-day${date === state.today ? ' today' : ''}${date < state.today ? ' past' : ''}" data-act="pick-day" data-date="${date}" aria-pressed="${on}" aria-label="${esc(label)}">
+        <span>${n}</span><span class="dot${has.has(date) ? ' set' : ' none'}"></span></button></div>`;
+    }
+    return `<div class="cal pick">
+      <div class="cal-head">
+        <button class="icon" data-act="pick-month" data-n="-1" aria-label="前の月">${ICON.back}</button>
+        <span class="cal-title">${y}年${m}月</span>
+        <button class="icon" data-act="pick-month" data-n="1" aria-label="次の月">${ICON.next}</button>
+      </div>
+      <div class="cal-week">${[...WEEKDAYS].map((w, i) => `<button type="button" class="pick-wd" data-act="pick-weekday" data-wd="${i}" aria-label="${y}年${m}月の${w}曜日をまとめて選ぶ">${w}</button>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+    </div>`;
+  }
+  /** 種類・時刻・メモの入れかけを、描き直しても消えないよう取っておく */
+  function keepDraft() {
+    const f = app.querySelector('form[data-form="days"]');
+    if (f) state.draft = Object.fromEntries(new FormData(f));
+  }
+  function togglePicked(dates, on) {
+    const set = new Set(state.picked);
+    for (const d of dates) { if (on) set.add(d); else set.delete(d); }
+    state.picked = [...set].sort();
+  }
+
   function viewAdmin() {
     const a = state.admin;
     if (!a) return top(whoMenu()) + '<main><div class="empty">読み込み中</div></main>';
@@ -352,23 +401,40 @@
       <h1>管理</h1>
       ${messages()}
 
-      <section class="card pad">
-        <div class="section-title"><h2>${e.id ? '練習日を直す' : '練習日を足す'}</h2>${e.id ? '<button class="link" data-act="cancel-edit">やめる</button>' : ''}</div>
-        <form data-form="day" class="form-grid">
-          <label class="field">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
-          <label class="field">種類<input class="input" name="kind" list="kinds" value="${esc(e.kind || '')}" maxlength="20"></label>
-          <datalist id="kinds"><option value="合奏"><option value="分奏"><option value="パート練習"><option value="本番"></datalist>
-          <label class="field">開始<input class="input" type="time" name="st" value="${esc(e.st || '')}"></label>
-          <label class="field">終了<input class="input" type="time" name="en" value="${esc(e.en || '')}"></label>
-          <label class="field full">メモ<input class="input" name="note" value="${esc(e.note || '')}" maxlength="100"></label>
-          <button class="cta full" type="submit">${e.id ? '保存' : '足す'}</button>
+      ${isMember() ? '' : `<section class="card pad">
+        <div class="section-title"><h2>自分を団員として登録</h2></div>
+        <form data-form="register-self" style="display:flex;flex-direction:column;gap:16px">
+          <label class="field">氏名<input class="input" name="name" autocomplete="name" maxlength="30" required></label>
+          ${partPicker('')}
+          <label class="field">暗証番号<input class="input" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="new-password" minlength="4" maxlength="8" required></label>
+          <button class="cta" type="submit">管理者として登録</button>
         </form>
-      </section>
+      </section>`}
+
+      ${e.id ? `<section class="card pad">
+        <div class="section-title"><h2>練習日を直す</h2><button class="link" data-act="cancel-edit">やめる</button></div>
+        <form data-form="day" class="form-grid">
+          <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
+          ${dayFields(e)}
+          <button class="cta full" type="submit">保存</button>
+        </form>
+      </section>` : `<section class="card pad">
+        <div class="section-title">
+          <div class="label-row"><h2>練習日を足す</h2><button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="pick-note" aria-label="選びかた">${ICON.info}</button></div>
+          ${state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}
+        </div>
+        <p id="pick-note" class="note" role="note" hidden>日付を押して何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。</p>
+        ${pickCalendar()}
+        <form data-form="days" class="form-grid">
+          ${dayFields(state.draft)}
+          <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
+        </form>
+      </section>`}
 
       <section class="card">
         <div class="part-head"><h2>練習日</h2><span>${a.days.length}日</span></div>
         ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions"><button class="ghost" data-act="edit-day" data-id="${esc(d.id)}">直す</button><button class="ghost danger" data-act="delete-day" data-id="${esc(d.id)}">消す</button></div></div>`).join('') : '<div class="empty">まだありません</div>'}
+          <div class="actions"><button class="ghost" data-act="copy-day" data-id="${esc(d.id)}">複製</button><button class="ghost" data-act="edit-day" data-id="${esc(d.id)}">直す</button><button class="ghost danger" data-act="delete-day" data-id="${esc(d.id)}">消す</button></div></div>`).join('') : '<div class="empty">まだありません</div>'}
       </section>
 
       <section class="card">
@@ -416,6 +482,7 @@
   async function loadAdmin() {
     const r = await api('adminData');
     if (r.ok) state.admin = r; else if (r.code !== 'UNAUTHORIZED') state.error = r.message;
+    if (!state.pickMonth) state.pickMonth = monthOf(state.today || new Date().toISOString());
   }
   async function openRoster() {
     if (!state.days.length) await loadHome();
@@ -463,7 +530,7 @@
       Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, admin: null, flash: '' });
     }),
     'info': (el) => {
-      const note = document.getElementById('reason-note');
+      const note = document.getElementById(el.getAttribute('aria-controls'));
       const open = note.hidden;
       note.hidden = !open;
       el.setAttribute('aria-expanded', String(open));
@@ -474,6 +541,30 @@
     'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
     'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; render(); window.scrollTo(0, 0); },
     'cancel-edit': () => { state.editDay = null; render(); },
+    'copy-day': (el) => {
+      const d = state.admin.days.find((x) => x.id === el.dataset.id);
+      if (!d) return;
+      state.editDay = null;
+      state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note };
+      state.picked = [];
+      render();
+      window.scrollTo(0, 0);
+    },
+    'pick-day': (el) => { keepDraft(); const d = el.dataset.date; togglePicked([d], !state.picked.includes(d)); render(); },
+    'pick-weekday': (el) => {
+      keepDraft();
+      const [y, m] = state.pickMonth.split('-').map(Number);
+      const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const dates = [];
+      for (let n = 1; n <= count; n++) if (new Date(Date.UTC(y, m - 1, n)).getUTCDay() === Number(el.dataset.wd)) dates.push(`${state.pickMonth}-${String(n).padStart(2, '0')}`);
+      // 今日より前の日は、まとめて選ぶときには入れない
+      const future = dates.filter((d) => d >= state.today);
+      const target = future.length ? future : dates;
+      togglePicked(target, !target.every((d) => state.picked.includes(d)));
+      render();
+    },
+    'pick-month': (el) => { keepDraft(); state.pickMonth = addMonth(state.pickMonth, Number(el.dataset.n)); render(); },
+    'pick-clear': () => { keepDraft(); state.picked = []; render(); },
     'delete-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d || !confirm(`${dateLabel(d.date)} の練習日と、その日の出欠を消しますか？`)) return;
@@ -543,8 +634,25 @@
     'day': (f) => run(async () => {
       const r = await api('saveDay', Object.assign({ id: state.editDay ? state.editDay.id : '' }, f));
       if (!r.ok) { state.error = r.message; return; }
-      state.flash = `${shortLabel(f.date)}を${state.editDay ? '保存' : '足'}しました`;
+      state.flash = `${shortLabel(f.date)}を保存しました`;
       state.editDay = null;
+      await Promise.all([loadAdmin(), loadHome()]);
+    }),
+    'days': (f) => run(async () => {
+      const dates = state.picked.slice();
+      const r = await api('saveDays', Object.assign({}, f, { dates }));
+      if (!r.ok) { state.error = r.message; state.draft = f; return; }
+      state.flash = dates.length === 1 ? `${shortLabel(dates[0])}を足しました` : `${shortLabel(dates[0])}から${shortLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
+      state.picked = [];
+      state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
+      await Promise.all([loadAdmin(), loadHome()]);
+    }),
+    'register-self': (f) => run(async () => {
+      if (!f.part) { state.error = 'パートを選んでください。'; return; }
+      const r = await api('registerSelf', f);
+      if (!r.ok) { state.error = r.message; return; }
+      state.me = r.me;
+      state.flash = '管理者として登録しました';
       await Promise.all([loadAdmin(), loadHome()]);
     }),
     'passphrase': (f) => run(async () => {

@@ -10,8 +10,7 @@
  */
 
 export const PARTS = [
-  { id: 'Vn1', group: 'strings' },
-  { id: 'Vn2', group: 'strings' },
+  { id: 'Vn', group: 'strings' },
   { id: 'Va', group: 'strings' },
   { id: 'Vc', group: 'strings' },
   { id: 'Cb', group: 'strings' },
@@ -42,6 +41,7 @@ export const LIMITS = {
   LOCK_SECONDS: 600,
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   PBKDF2_ROUNDS: 20000,
+  DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
 };
 
 const STATUSES = ['attend', 'absent'];
@@ -77,6 +77,8 @@ export class Store {
       created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
     // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
     x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
+    // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人も Vn に直す
+    x("UPDATE members SET part = 'Vn' WHERE part IN ('Vn1', 'Vn2')");
   }
 
   // ---------------- 小さな値 ----------------
@@ -306,23 +308,34 @@ const PRIVATE = {
 
   saveDay: ['admin', function (p) {
     const date = String(p.date || '');
-    const st = String(p.st || '');
-    const en = String(p.en || '');
-    if (!DATE.test(date) || isNaN(Date.parse(date + 'T00:00:00Z'))) return fail('日付を入れてください。');
-    if (st && !TIME.test(st)) return fail('開始時刻の形が正しくありません。');
-    if (en && !TIME.test(en)) return fail('終了時刻の形が正しくありません。');
-    if (st && en && en <= st) return fail('終了時刻は開始時刻より後にしてください。');
-    const kind = cleanText(p.kind, LIMITS.KIND);
-    const note = cleanText(p.note, LIMITS.NOTE);
+    if (!isDate(date)) return fail('日付を入れてください。');
+    const f = dayFields(p);
+    if (f.error) return fail(f.error);
     let id = String(p.id || '');
     if (id) {
       if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) return fail('練習日が見つかりません。', 'NOT_FOUND');
-      this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ? WHERE id = ?', date, kind, st, en, note, id);
+      this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, id);
     } else {
       id = randomId(9);
-      this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', id, date, kind, st, en, note);
+      this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note);
     }
     return { ok: true, id, days: this.listDays() };
+  }],
+
+  /** 同じ種類・時刻・メモの練習日を、いくつもの日付にまとめて足す */
+  saveDays: ['admin', function (p) {
+    const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
+    if (!dates.length) return fail('日付を選んでください。');
+    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
+    if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
+    const f = dayFields(p);
+    if (f.error) return fail(f.error);
+    this.db.txn(() => {
+      for (const date of dates) {
+        this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', randomId(9), date, f.kind, f.st, f.en, f.note);
+      }
+    });
+    return { ok: true, added: dates.length, days: this.listDays() };
   }],
 
   deleteDay: ['admin', function (p) {
@@ -332,6 +345,27 @@ const PRIVATE = {
       this.db.exec('DELETE FROM days WHERE id = ?', id);
     });
     return { ok: true, days: this.listDays() };
+  }],
+
+  /** 管理用パスワードで入った人が、自分を管理者の団員として登録する（合言葉は要らない）。今のログインがそのまま団員のログインになる */
+  registerSelf: ['admin', async function (p, who) {
+    if (who.member) return fail('すでに団員としてログインしています。');
+    const name = cleanName(p.name);
+    const part = String(p.part || '');
+    const pin = String(p.pin || '');
+    if (!name) return fail('氏名を入れてください。');
+    if (!PART_IDS.includes(part)) return fail('パートを選んでください。');
+    if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
+    const pinHash = await hashSecret(pin);
+    if (this.db.exec('SELECT 1 FROM members WHERE name = ?', name).length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
+    const id = randomId(9);
+    this.db.txn(() => {
+      this.db.exec('INSERT INTO members (id, name, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        id, name, part, 'admin', pinHash, new Date(this.now()).toISOString());
+      this.db.exec('UPDATE sessions SET member_id = ? WHERE token = ?', id, who.session);
+    });
+    const m = this.db.exec('SELECT * FROM members WHERE id = ?', id)[0];
+    return { ok: true, me: this.meOf({ member: m, role: 'admin' }) };
   }],
 
   setRole: ['admin', function (p, who) {
@@ -382,6 +416,17 @@ const PRIVATE = {
 };
 
 // ---------------- 小さな道具 ----------------
+/** 練習日の日付が正しいか */
+function isDate(d) { return DATE.test(d) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d; }
+/** 練習日の種類・時刻・メモを確かめてそろえる。誤りがあれば { error } */
+function dayFields(p) {
+  const st = String(p.st || '');
+  const en = String(p.en || '');
+  if (st && !TIME.test(st)) return { error: '開始時刻の形が正しくありません。' };
+  if (en && !TIME.test(en)) return { error: '終了時刻の形が正しくありません。' };
+  if (st && en && en <= st) return { error: '終了時刻は開始時刻より後にしてください。' };
+  return { kind: cleanText(p.kind, LIMITS.KIND), st, en, note: cleanText(p.note, LIMITS.NOTE) };
+}
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
 

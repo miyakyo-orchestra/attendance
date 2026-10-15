@@ -65,7 +65,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 
 /* パートを選ぶボタン（中身はラジオボタン） */
 .parts { display: grid; gap: 6px; }
-.parts.strings { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 6px; }
+.parts.strings { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 6px; }
 .parts.winds { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .chip { position: relative; }
 .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; }
@@ -210,3 +210,20 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 @media (min-width: 600px) {
   main { padding-left: 24px; padding-right: 24px; }
 }
+
+/* 練習日をまとめて足すカレンダー（管理） */
+.cal.pick { padding: 0; }
+.pick-wd { background: none; border: none; padding: 6px 0; min-height: 32px; font-size: 12px; color: var(--sub); border-radius: 8px; }
+.pick-wd:hover { background: var(--muted); }
+.pick-day {
+  width: 44px; height: 44px; border-radius: 10px; border: none; background: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 15px; color: var(--ink); padding: 0;
+}
+.pick-day.past { color: var(--grey); }
+.pick-day.today { box-shadow: inset 0 0 0 2px var(--ink); }
+.pick-day[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); font-weight: 700; }
+.pick-day .dot.set { background: var(--sub); border: none; }
+.pick-day .dot.none { visibility: hidden; }
+.pick-day[aria-pressed="true"] .dot.set { background: var(--on-ink); }
+.label-row h2 { color: var(--ink); }
