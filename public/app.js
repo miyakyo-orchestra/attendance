@@ -298,21 +298,36 @@
     if (state.busy) setBusy(true);
     syncHistory();
   }
-  // 一覧の日付の帯は、描き直しても横の位置を保つ。選んだ日が見えないときだけ、見える所まで動かす
+  // 一覧の日付の帯は、描き直しても横の位置を保つ。日付を選んだら、その日が真ん中に来るまで滑らかに動かす
   let chipScroll = null;
+  let chipTarget = null; // 動いている途中の行き先。途中で描き直しても、そこへ向かって動き続ける
+  let chipSlide = false;
+  const REDUCE_MOTION = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   function keepChipScroll() {
     const strip = app.querySelector('.day-chips');
     if (!strip) return;
-    if (chipScroll !== null) strip.scrollLeft = chipScroll;
     const on = strip.querySelector('[aria-pressed="true"]');
-    if (on) {
-      const l = on.offsetLeft - strip.offsetLeft;
-      if (chipScroll === null || l < strip.scrollLeft || l + on.offsetWidth > strip.scrollLeft + strip.clientWidth) {
-        strip.scrollLeft = l - (strip.clientWidth - on.offsetWidth) / 2;
+    const max = strip.scrollWidth - strip.clientWidth;
+    const center = on ? Math.max(0, Math.min(max, on.offsetLeft - strip.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2)) : 0;
+    if (chipScroll === null) strip.scrollLeft = center; // はじめて開いたときは、動かさずに真ん中に置く
+    else {
+      strip.scrollLeft = chipScroll;
+      if (chipSlide || chipTarget !== null) {
+        chipTarget = center;
+        strip.scrollTo({ left: center, behavior: REDUCE_MOTION ? 'auto' : 'smooth' });
+      } else if (on) {
+        const l = on.offsetLeft - strip.offsetLeft;
+        if (l < strip.scrollLeft || l + on.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = center;
       }
     }
+    chipSlide = false;
     chipScroll = strip.scrollLeft;
-    strip.onscroll = () => { chipScroll = strip.scrollLeft; };
+    strip.onscroll = () => {
+      chipScroll = strip.scrollLeft;
+      if (chipTarget !== null && Math.abs(chipScroll - chipTarget) < 1) chipTarget = null;
+    };
+    // 指でなぞって止めたときは、行き先を忘れる（描き直しで勝手に戻らないように）
+    strip.ontouchstart = () => { chipTarget = null; };
   }
   /** 練習日（管理用パスワードで入ったときは管理）に戻る */
   function goHome() {
@@ -897,6 +912,7 @@
     state.rosterCal = false;
     state.error = '';
     state.rosterDay = dayId;
+    chipSlide = true;
     if (state.rosterCache[dayId]) state.roster = state.rosterCache[dayId];
     render();
     loadRoster(dayId).then(() => { if (!state.busy && (state.view !== 'roster' || state.rosterDay === dayId)) render(); });
