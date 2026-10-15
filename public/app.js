@@ -15,7 +15,7 @@
 
   const TOKEN_KEY = 'attendance.token';
   const VIEW_KEY = 'attendance.homeView'; // 練習日をリストとカレンダーのどちらで見るか（端末ごとに覚える）
-  function savedView() { try { return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'list'; } catch (e) { return 'list'; } }
+  function savedView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'; } catch (e) { return 'calendar'; } }
   const WEEKDAYS = '日月火水木金土';
   const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
@@ -363,8 +363,8 @@
     const list = state.homeView === 'list';
     return top(whoMenu()) + `<main>
       <div class="seg" role="group" aria-label="表示">
-        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
+        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
       </div>
       ${messages()}
       ${list ? dayList() : monthView() + agenda()}
