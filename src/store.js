@@ -135,7 +135,7 @@ export class Store {
       if (Object.prototype.hasOwnProperty.call(PUBLIC, action)) return await PUBLIC[action].call(this, p, c);
       if (!Object.prototype.hasOwnProperty.call(PRIVATE, action)) return fail('不明な操作です。', 'BAD_REQUEST');
       const who = await this.whoAmI(c.token);
-      if (!who) return fail('ログインし直してください。', 'UNAUTHORIZED');
+      if (!who) return fail('ログインが切れました。もう一度ログインしてください。', 'UNAUTHORIZED');
       const [need, fn] = PRIVATE[action];
       if (need === 'member' && !who.member) return fail('団員としてログインしてください。', 'FORBIDDEN');
       if (need === 'admin' && who.role !== 'admin') return fail('管理者だけが使えます。', 'FORBIDDEN');
@@ -301,7 +301,7 @@ const PUBLIC = {
   /** パスキーでログインする前に、チャレンジを受け取る */
   async passkeyLoginOptions() {
     const { rpId } = this.site();
-    if (!rpId) return fail('パスキーは使えません。', 'DISABLED');
+    if (!rpId) return fail('このページではパスキーを使えません。', 'DISABLED');
     return { ok: true, challenge: this.newChallenge('login'), rpId };
   },
 
@@ -317,7 +317,7 @@ const PUBLIC = {
       if (!this.useChallenge(challenge, 'login')) return failed();
       await readAuthData(authData, rpId, false);
       const key = this.db.exec('SELECT * FROM passkeys WHERE id = ?', String(p.id || ''))[0];
-      if (!key) return fail('このパスキーは登録がありません。暗証番号でログインしてください。', 'PASSKEY_UNKNOWN');
+      if (!key) return fail('このパスキーは登録されていません。暗証番号でログインしてください。', 'PASSKEY_UNKNOWN');
       const ok = await verifySignature(JSON.parse(key.jwk), key.alg, authData, clientData, fromB64url(p.signature));
       if (!ok) return failed();
       const m = this.db.exec('SELECT * FROM members WHERE id = ?', key.member_id)[0];
@@ -398,7 +398,7 @@ const PRIVATE = {
   /** パスキーを作る前に、チャレンジと、作るのに要る値を受け取る */
   passkeyRegisterOptions: ['member', function (p, who) {
     const { rpId } = this.site();
-    if (!rpId) return fail('パスキーは使えません。', 'DISABLED');
+    if (!rpId) return fail('このページではパスキーを使えません。', 'DISABLED');
     const m = who.member;
     return {
       ok: true,

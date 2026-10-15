@@ -44,6 +44,11 @@ a { color: var(--blue); }
 .who { position: relative; }
 .who > summary { list-style: none; cursor: pointer; font-size: 13px; color: var(--sub); padding: 8px 0 8px 8px; }
 .who > summary::-webkit-details-marker { display: none; }
+.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary h2 { margin: 0; }
+.fold > summary svg { margin-left: auto; color: var(--sub); transition: transform .15s; }
+.fold[open] > summary svg { transform: rotate(180deg); }
 .menu { position: absolute; right: 0; top: 100%; z-index: 10; min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); padding: 6px; display: flex; flex-direction: column; }
 .menu button { text-align: left; background: none; border: none; padding: 10px 12px; border-radius: 8px; font-size: 14px; min-height: 44px; }
 .menu button:hover { background: var(--muted); }
@@ -91,6 +96,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .ghost.danger { color: var(--danger); }
 .ghost.icon { width: 38px; padding: 0; display: inline-grid; place-items: center; }
 .ghost.icon svg { width: 24px; height: 24px; }
+.ghost.icon:disabled { color: var(--grey); opacity: .45; }
 .link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 12px; min-height: 44px; }
 .icon { width: 44px; height: 44px; background: none; border: none; display: flex; align-items: center; justify-content: center; color: var(--sub); padding: 0; flex: none; }
 .icon svg { width: 20px; height: 20px; }
