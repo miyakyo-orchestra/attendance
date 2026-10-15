@@ -312,3 +312,4 @@ main.auth h1 { font-size: 26px; }
 /* 月ごとの区切り */
 .month-group { display: flex; flex-direction: column; gap: 8px; }
 .month-label { margin: 0; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--sub); }
+.dots { display: flex; gap: 2px; }
