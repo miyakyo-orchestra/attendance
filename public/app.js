@@ -59,7 +59,7 @@
   async function api(action, params) {
     let res;
     try {
-      res = await fetch('/api', {
+      res = await fetch(window.API_URL + '/api', {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, memToken ? { Authorization: 'Bearer ' + memToken } : {}),
         body: JSON.stringify({ action, params: params || {} }),

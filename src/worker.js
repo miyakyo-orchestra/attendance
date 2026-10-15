@@ -1,14 +1,16 @@
 /**
  * 宮教オケ 出欠（Cloudflare Workers）
  *
- * - 画面（public/ の HTML・CSS・JS）は、Workers の静的アセットの機能が配る（wrangler.toml の [assets]）。
- *   ここに届くのは /api だけ。
+ * - 画面（public/ の HTML・CSS・JS）は GitHub Pages が配る。ここは呼び出し（/api）だけを受ける。
+ * - 呼び出しは画面のサイト（ALLOWED_ORIGIN。GitHub Pages）からだけ受け付ける。
  * - POST /api … 画面からの呼び出し。本文は { action, params }、ログインの印は Authorization: Bearer で受ける。
  *   中身の処理は store.js（Durable Object「Main」の中で動かす）。
  * - データは Durable Object の中の SQLite に置く。Cloudflare が自動で控えを取り、30日前までの状態に戻せる。
  *
- * 設定（Cloudflare の秘密の設定。GitHub Actions が Secrets から登録する）:
- *   ADMIN_PASSWORD … 管理用パスワード。最初の管理者を決めるときと、管理者がいなくなったときに使う
+ * 設定:
+ *   ADMIN_PASSWORD … 管理用パスワード（Cloudflare の秘密の設定。GitHub Actions が Secrets から登録する）。
+ *                    最初の管理者を決めるときと、管理者がいなくなったときに使う
+ *   ALLOWED_ORIGIN … 画面のサイトの起点（wrangler.toml。例: https://miyakyo-orchestra.github.io）
  */
 
 import { Store } from './store.js';
@@ -16,15 +18,30 @@ import { Store } from './store.js';
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api') {
-      if (request.method !== 'POST') return json({ ok: false, code: 'BAD_REQUEST' }, 405);
-      // ほかのサイトから呼ばれないよう、同じサイトからの呼び出しだけ受ける
-      const origin = request.headers.get('Origin');
-      if (origin && origin !== url.origin) return json({ ok: false, code: 'FORBIDDEN' }, 403);
-      const stub = env.MAIN.get(env.MAIN.idFromName('main'));
-      return stub.fetch(request);
+    const allowed = String(env.ALLOWED_ORIGIN || '').trim();
+    const origin = request.headers.get('Origin') || '';
+    // ほかのサイトから呼ばれないよう、画面のサイトからの呼び出しだけ受ける
+    if (origin && origin !== allowed) return json({ ok: false, code: 'FORBIDDEN' }, 403);
+    const withCors = (res) => {
+      const h = new Headers(res.headers);
+      if (origin) {
+        h.set('Access-Control-Allow-Origin', origin);
+        h.set('Vary', 'Origin');
+      }
+      return new Response(res.body, { status: res.status, headers: h });
+    };
+    if (url.pathname !== '/api') return json({ ok: false, code: 'NOT_FOUND' }, 404);
+    // 呼び出しの前の確認（ログインの印を Authorization に入れて送るので、ブラウザが先に聞いてくる）
+    if (request.method === 'OPTIONS') {
+      return withCors(new Response(null, { status: 204, headers: {
+        'Access-Control-Allow-Methods': 'POST',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Max-Age': '86400',
+      } }));
     }
-    return env.ASSETS.fetch(request);
+    if (request.method !== 'POST') return json({ ok: false, code: 'BAD_REQUEST' }, 405);
+    const stub = env.MAIN.get(env.MAIN.idFromName('main'));
+    return withCors(await stub.fetch(request));
   },
 };
 

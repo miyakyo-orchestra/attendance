@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "dev:web": "python3 -m http.server 8765 --bind 127.0.0.1 -d public",
     "test": "node --test --disable-warning=ExperimentalWarning test/*.test.js",
     "deploy": "wrangler deploy"
   },

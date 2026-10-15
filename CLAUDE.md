@@ -6,7 +6,7 @@
 
 - 返答・コミットメッセージ・コード中のコメントは日本語。専門用語は避け、平易に書く。
 - 動きを変えたら、同じコミットで docs/仕様書.md を書き直す。
-- 公開: main に push すると GitHub Actions が Cloudflare に公開する（本番）。見た目を変える案は、画面を見せて「公開」と言われるまで main に入れない。
+- 公開: main に push すると GitHub Actions が画面（public/）を GitHub Pages に、サーバー（src/）を Cloudflare に公開する（本番）。見た目を変える案は、画面を見せて「公開」と言われるまで main に入れない。
 - ライトモードとダークモードの両方がある（端末の設定で自動切替）。色は public/style.css の先頭の名前だけを使い、ダークモードの色も足す。
 - 画面に説明文を書かない。どうしても要る説明だけを i ボタンに入れる。
 - 欠席理由は本人・役職・管理者にだけ返す。store.js の roster を変えるときは、テストの「欠席理由は本人と役職・管理者にだけ返す」が通ることを確かめる。
@@ -15,5 +15,5 @@
 ## 確かめかた
 
 - `npm install` のあと `npm test`（store.js のテスト。Node 22 以上）。
-- `npm run dev` で手元に立ち上がる（http://127.0.0.1:8787/）。管理用パスワードは `.dev.vars` に `ADMIN_PASSWORD=admin123` と書いておく（このファイルは commit しない）。
+- `npm run dev`（サーバー、127.0.0.1:8787）と `npm run dev:web`（画面）を両方立ち上げ、http://127.0.0.1:8765/ を開く。`.dev.vars` に `ADMIN_PASSWORD=admin123` と `ALLOWED_ORIGIN=http://127.0.0.1:8765` を書いておく（このファイルは commit しない）。
 - スマホ幅（390px）と PC 幅、ライトとダークの両方を見る。

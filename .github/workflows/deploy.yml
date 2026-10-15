@@ -1,14 +1,15 @@
-# main に push すると、Cloudflare Workers に公開する（画面も API も一緒に）。
+# main に push すると、サーバー（src/）を Cloudflare Workers に公開する。画面は pages.yml が GitHub Pages に公開する。
 # 使う秘密の値（GitHub のリポジトリの Settings > Secrets and variables > Actions に登録。手順は docs/公開手順.md）:
 #   CLOUDFLARE_API_TOKEN  … Cloudflare の API トークン（「Edit Cloudflare Workers」のひな形で作る）
 #   CLOUDFLARE_ACCOUNT_ID … Cloudflare のアカウント ID
 #   ADMIN_PASSWORD        … 管理用パスワード（Cloudflare の秘密の設定として登録する）
 # CLOUDFLARE_API_TOKEN が登録されていなければ、何もしない。
-name: Cloudflare に公開
+name: サーバーを Cloudflare に公開
 
 on:
   push:
     branches: [main]
+    paths: ['src/**', 'wrangler.toml', 'package.json', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 permissions:
