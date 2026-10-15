@@ -238,6 +238,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .pad-box { padding: 12px 16px 16px; }
 .offer { justify-content: center; gap: 20px; padding-bottom: 20vh; }
+.offer-head { display: flex; justify-content: center; align-items: center; gap: 4px; }
 .offer h1 { text-align: center; }
 .offer .link { align-self: center; }
 
@@ -272,3 +273,4 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 }
 .tabs button[aria-current="page"] { color: var(--ink); }
 .tabs button[aria-current="page"] svg { stroke-width: 2.4; }
+.card > .note { margin: 12px 16px 0; }

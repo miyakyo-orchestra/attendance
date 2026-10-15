@@ -450,7 +450,8 @@
         </form>
       </section>
       ${PASSKEY ? `<section class="card">
-        <div class="part-head"><h2>パスキー</h2><span>${keys ? keys.length + '個' : ''}</span></div>
+        <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo('passkey-note')}</div><span>${keys ? keys.length + '個' : ''}</span></div>
+        ${passkeyNote('passkey-note')}
         ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(shortLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(shortLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
           <div class="actions"><button class="ghost danger" data-act="passkey-delete" data-id="${esc(k.id)}">消す</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
@@ -458,10 +459,19 @@
     </main>`;
   }
 
+  // パスキーの説明（i ボタンで開く）
+  function passkeyInfo(id) {
+    return `<button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="${id}" aria-label="パスキーとは">${ICON.info}</button>`;
+  }
+  function passkeyNote(id) {
+    return `<p id="${id}" class="note" role="note" hidden>パスキーを作ると、次からは指紋や顔、端末の画面ロックだけでログインでき、氏名と暗証番号を入れずに済みます。パスキーは端末の中に保存され、この画面のサイト以外では使えないので、盗み見られたり、ほかのサイトに入力させられたりする心配がありません。iPhone なら iCloud キーチェーン、Android なら Google パスワード マネージャーに保存され、同じアカウントで使っている別の端末でもそのまま使えます。暗証番号でのログインも、これまでどおり使えます。</p>`;
+  }
+
   // 登録やログインのすぐあとに、パスキーを作るよう勧める
   function viewOffer() {
     return top(whoMenu()) + `<main class="offer">
-      <h1>パスキーを作りますか</h1>
+      <div class="offer-head"><h1>パスキーを作りますか</h1>${passkeyInfo('offer-note')}</div>
+      ${passkeyNote('offer-note')}
       ${messages()}
       <button class="cta" data-act="passkey-create">作る</button>
       <button class="link" data-act="go-home">あとで</button>
