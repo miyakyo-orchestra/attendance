@@ -221,6 +221,28 @@ test('練習日をまとめて足す', async () => {
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
 });
 
+test('貼り付けたカレンダーから練習日を足す', async () => {
+  const t = await ready();
+  const r = await t.call('importDays', { items: [
+    { date: '2026-10-20', kind: '個人／パート', st: '18:00', en: '21:00' },
+    { date: '2026-10-16', kind: '大学祭リハーサル', st: '17:00', en: '19:30' },
+    { date: '2026-10-17', kind: '大学祭演奏', st: '', en: '' },
+  ] }, t.adminToken);
+  assert.equal(r.ok, true);
+  assert.equal(r.added, 3);
+  assert.deepEqual(r.days.map((d) => d.date + d.kind), ['2026-10-16大学祭リハーサル', '2026-10-17大学祭演奏', '2026-10-17分奏', '2026-10-20個人／パート']);
+  // 一つでも誤りがあれば一つも足さない
+  const bad = await t.call('importDays', { items: [{ date: '2026-11-01', kind: '合奏' }, { date: '2026-11-02', st: '21:00', en: '20:00' }] }, t.adminToken);
+  assert.equal(bad.ok, false);
+  assert.equal((await t.call('adminData', {}, t.adminToken)).days.length, 4);
+  assert.equal((await t.call('importDays', { items: [] }, t.adminToken)).ok, false);
+  assert.equal((await t.call('importDays', { items: [{ date: '2026-13-01' }] }, t.adminToken)).ok, false);
+  const many = Array.from({ length: 101 }, () => ({ date: '2027-01-01' }));
+  assert.equal((await t.call('importDays', { items: many }, t.adminToken)).ok, false);
+  const member = await join(t, '団員', 'Va');
+  assert.equal((await t.call('importDays', { items: [{ date: '2026-11-01' }] }, member)).code, 'FORBIDDEN');
+});
+
 test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   const t = await ready();
   await join(t, '前の人', 'Vn');

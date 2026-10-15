@@ -62,6 +62,9 @@
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
+    paste: '', // 貼り付けたカレンダーの文字
+    pasteFlip: {}, // 貼り付けの候補のうち、はじめの選びから入れ替えたもの（番号）
+    pasteOpen: false,
     passkeys: null, // 自分のパスキーの一覧（設定の画面）
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     adminTab: 'days', // 管理画面のタブ
@@ -679,13 +682,51 @@
           ${dayFields(state.draft)}
           <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
         </form>
-      </section>`}
+      </section>
+      <details class="card pad fold" data-fold="paste"${state.pasteOpen ? ' open' : ''}>
+        <summary><div class="label-row"><h2>貼り付けて足す</h2>${tip('貼り付けかた', '配っているカレンダーの表を、表計算ソフトで月の分まとめて写して貼り付けます。10/20 合奏 18:30〜20:00 のように1行に1件ずつ書いても読めます。')}</div>${ICON.down}</summary>
+        <label class="sr" for="paste">カレンダーの文字</label>
+        <textarea class="textarea" id="paste" data-input="paste" rows="5">${esc(state.paste)}</textarea>
+        <div id="paste-preview">${pastePreview()}</div>
+      </details>`}
 
       <section class="card">
         <div class="part-head"><h2>練習日</h2><span>${a.days.length}日</span></div>
         ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
           <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
       </section>`;
+  }
+
+  /** 貼り付けた文字から読んだ候補。はじめは、練習らしく、今日以降で、まだない練習日だけを選ぶ */
+  function pasteItems() {
+    if (!state.paste.trim() || !window.parsePaste) return [];
+    const have = new Set(state.admin.days.map((d) => `${d.date} ${d.kind} ${d.st}`));
+    return window.parsePaste(state.paste, { today: state.today }).map((it, i) => {
+      const dup = have.has(`${it.date} ${it.kind} ${it.st}`);
+      const past = it.date && it.date < state.today;
+      const auto = it.practice && !it.error && !dup && !past;
+      const on = !it.error && (state.pasteFlip[i] ? !auto : auto);
+      return Object.assign(it, { i, dup, past, on });
+    });
+  }
+  function pastePreview() {
+    const items = pasteItems();
+    if (!state.paste.trim()) return '';
+    if (!items.length) return '<div class="empty">読み取れる日付がありません</div>';
+    const n = items.filter((it) => it.on).length;
+    return `<div class="paste-list">${items.map((it) => {
+      const tag = it.error || (it.dup ? '登録済み' : it.past ? '過ぎた日' : '');
+      return `<label class="list-row${it.on ? '' : ' off'}">
+        <span class="check"><input type="checkbox" data-change="paste-item" value="${it.i}"${it.on ? ' checked' : ''}${it.error ? ' disabled' : ''}></span>
+        <span class="main"><b>${it.date ? esc(dateLabel(it.date)) : '?'}</b><small>${esc(metaLabel(it)) || '種類なし'}</small></span>
+        ${tag ? `<span class="badge">${esc(tag)}</span>` : ''}
+      </label>`;
+    }).join('')}</div>
+      <button class="cta full" data-act="paste-save"${n ? '' : ' disabled'}>${n ? `${n}件を足す` : '足すものを選ぶ'}</button>`;
+  }
+  function renderPaste() {
+    const box = app.querySelector('#paste-preview');
+    if (box) box.innerHTML = pastePreview();
   }
 
   // 管理: 団員と合言葉
@@ -930,6 +971,20 @@
         await Promise.all([loadAdmin(), loadHome()]);
       });
     },
+    'paste-save': () => {
+      const items = pasteItems().filter((it) => it.on).map(({ date, kind, st, en }) => ({ date, kind, st, en }));
+      if (!items.length) return;
+      run(async () => {
+        const r = await api('importDays', { items });
+        if (!r.ok) { state.error = r.message; return; }
+        state.flash = `練習日を${r.added}件足しました`;
+        state.paste = '';
+        state.pasteFlip = {};
+        state.pasteOpen = false;
+        await Promise.all([loadAdmin(), loadHome()]);
+        window.scrollTo(0, 0);
+      });
+    },
     'export': () => run(async () => {
       const r = await api('exportCsv');
       if (!r.ok) { state.error = r.message; return; }
@@ -1026,6 +1081,11 @@
       const submit = form.querySelector('[type="submit"]');
       if (submit) submit.hidden = false;
     }
+    if (el.dataset.change === 'paste-item') {
+      const i = Number(el.value);
+      state.pasteFlip[i] = !state.pasteFlip[i];
+      renderPaste();
+    }
     if (el.dataset.change === 'sel-member') {
       const set = new Set(state.selMembers);
       if (el.checked) set.add(el.value); else set.delete(el.value);
@@ -1041,6 +1101,16 @@
       });
     }
   });
+  // 貼り付けの欄は、打つたびに候補だけを描き直す（欄の入力を途切れさせない）
+  app.addEventListener('input', (ev) => {
+    if (ev.target.dataset.input !== 'paste') return;
+    state.paste = ev.target.value;
+    state.pasteFlip = {};
+    renderPaste();
+  });
+  app.addEventListener('toggle', (ev) => {
+    if (ev.target.dataset && ev.target.dataset.fold === 'paste') state.pasteOpen = ev.target.open;
+  }, true);
   // メニューの外を押したら閉じる
   document.addEventListener('click', (ev) => {
     const open = app.querySelector('details.who[open]');
