@@ -17,7 +17,7 @@ function setup(opts) {
     },
   };
   let now = Date.parse('2026-10-15T03:00:00Z'); // 日本時間 10月15日 12時
-  const store = new Store(db, Object.assign({ ADMIN_PASSWORD: 'admin-pass' }, opts), () => now);
+  const store = new Store(db, Object.assign({ ADMIN_PASSWORD: 'admin-pass', ALLOWED_ORIGIN: 'https://orch.example.org' }, opts), () => now);
   const call = (action, params, token, ip) => store.api({ action, params }, { token, ip: ip || '1.1.1.1' });
   return { store, call, advance: (ms) => { now += ms; } };
 }
@@ -247,4 +247,102 @@ test('ログインに合言葉は要らないが、同じ接続元からの誤�
   for (let i = 0; i < 10; i++) await t.call('login', { name: i % 2 ? '鈴木' : '登録のない人' + i, pin: '0000' }, undefined, '9.9.9.9');
   assert.equal((await t.call('login', { name: '鈴木', pin: '1357' }, undefined, '9.9.9.9')).code, 'LOCKED');
   assert.equal((await t.call('login', { name: '鈴木', pin: '1357' }, undefined, '8.8.8.8')).code, 'LOCKED'); // 本人の5回の誤りで本人も止まる
+});
+
+// ---------------- パスキー（認証器のふりをして確かめる） ----------------
+const b64u = (b) => Buffer.from(b).toString('base64url');
+const sha = async (b) => new Uint8Array(await crypto.subtle.digest('SHA-256', b));
+function cborEnc(v) {
+  const head = (major, n) => n < 24 ? [major << 5 | n] : n < 256 ? [major << 5 | 24, n] : [major << 5 | 25, n >> 8, n & 255];
+  if (typeof v === 'number') return Uint8Array.from(v >= 0 ? head(0, v) : head(1, -1 - v));
+  if (v instanceof Uint8Array) return Uint8Array.from([...head(2, v.length), ...v]);
+  if (typeof v === 'string') { const t = new TextEncoder().encode(v); return Uint8Array.from([...head(3, t.length), ...t]); }
+  if (v instanceof Map) { const parts = [...v].flatMap(([k, x]) => [...cborEnc(k), ...cborEnc(x)]); return Uint8Array.from([...head(5, v.size), ...parts]); }
+  throw new Error('cbor');
+}
+function rawToDer(raw) {
+  const int = (b) => { let i = 0; while (i < b.length - 1 && b[i] === 0) i++; b = b.slice(i); if (b[0] & 0x80) b = Uint8Array.from([0, ...b]); return [0x02, b.length, ...b]; };
+  const body = [...int(raw.slice(0, 32)), ...int(raw.slice(32))];
+  return Uint8Array.from([0x30, body.length, ...body]);
+}
+async function authenticator(rpId, origin) {
+  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const jwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
+  const credId = crypto.getRandomValues(new Uint8Array(16));
+  const rpHash = await sha(new TextEncoder().encode(rpId));
+  const clientData = (type, challenge, o) => new TextEncoder().encode(JSON.stringify({ type, challenge, origin: o || origin }));
+  return {
+    id: b64u(credId),
+    async create(challenge, opts = {}) {
+      const cose = new Map([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x, 'base64url')], [-3, Buffer.from(jwk.y, 'base64url')]]);
+      const authData = Uint8Array.from([...rpHash, 0x45, 0, 0, 0, 0, ...new Uint8Array(16), 0, credId.length, ...credId, ...cborEnc(cose)]);
+      const att = cborEnc(new Map([['fmt', 'none'], ['attStmt', new Map()], ['authData', authData]]));
+      return { clientDataJSON: b64u(clientData('webauthn.create', challenge, opts.origin)), attestationObject: b64u(att) };
+    },
+    async get(challenge, opts = {}) {
+      const authData = Uint8Array.from([...rpHash, opts.flags ?? 0x05, 0, 0, 0, 1]);
+      const cd = clientData('webauthn.get', challenge, opts.origin);
+      const data = Uint8Array.from([...authData, ...await sha(cd)]);
+      const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, data));
+      return { id: b64u(credId), clientDataJSON: b64u(cd), authenticatorData: b64u(authData), signature: b64u(rawToDer(sig)) };
+    },
+  };
+}
+
+test('パスキーを作り、氏名も暗証番号もなしでログインできる', async () => {
+  const t = await ready();
+  const token = await join(t, '田中', 'Fl');
+  const dev = await authenticator('orch.example.org', 'https://orch.example.org');
+  const opt = await t.call('passkeyRegisterOptions', {}, token);
+  assert.equal(opt.ok, true);
+  assert.equal(opt.rp.id, 'orch.example.org');
+  const reg = await t.call('passkeyRegister', await dev.create(opt.challenge), token);
+  assert.equal(reg.ok, true, reg.message);
+  assert.equal(reg.passkeys.length, 1);
+  // 同じチャレンジは二度使えない
+  assert.equal((await t.call('passkeyRegister', await dev.create(opt.challenge), token)).ok, false);
+
+  const lo = await t.call('passkeyLoginOptions', {});
+  const r = await t.call('passkeyLogin', await dev.get(lo.challenge));
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.me.name, '田中');
+  assert.equal(r.hasPasskey, true);
+  assert.equal((await t.call('home', {}, r.token)).me.name, '田中');
+  // 使い終えたチャレンジ、ほかのサイト、本人確認なし、知らない鍵では入れない
+  assert.equal((await t.call('passkeyLogin', await dev.get(lo.challenge))).ok, false);
+  let c = await t.call('passkeyLoginOptions', {});
+  assert.equal((await t.call('passkeyLogin', await dev.get(c.challenge, { origin: 'https://evil.example' }))).ok, false);
+  c = await t.call('passkeyLoginOptions', {});
+  assert.equal((await t.call('passkeyLogin', await dev.get(c.challenge, { flags: 0x01 }))).ok, false);
+  const other = await authenticator('orch.example.org', 'https://orch.example.org');
+  c = await t.call('passkeyLoginOptions', {});
+  assert.equal((await t.call('passkeyLogin', await other.get(c.challenge))).code, 'PASSKEY_UNKNOWN');
+  // 署名をすり替えても入れない
+  c = await t.call('passkeyLoginOptions', {});
+  const forged = await dev.get(c.challenge);
+  forged.signature = (await other.get(c.challenge)).signature;
+  assert.equal((await t.call('passkeyLogin', forged)).ok, false);
+  // 消したら使えない
+  await t.call('passkeyDelete', { id: dev.id }, token);
+  c = await t.call('passkeyLoginOptions', {});
+  assert.equal((await t.call('passkeyLogin', await dev.get(c.challenge))).code, 'PASSKEY_UNKNOWN');
+});
+
+test('パスキーはほかの人のチャレンジやサイトでは作れず、団員を消すと消える', async () => {
+  const t = await ready();
+  const a = await join(t, '一人目', 'Va');
+  const b = await join(t, '二人目', 'Vc');
+  const dev = await authenticator('orch.example.org', 'https://orch.example.org');
+  const optA = await t.call('passkeyRegisterOptions', {}, a);
+  assert.equal((await t.call('passkeyRegister', await dev.create(optA.challenge), b)).ok, false);
+  const optB = await t.call('passkeyRegisterOptions', {}, b);
+  assert.equal((await t.call('passkeyRegister', await dev.create(optB.challenge, { origin: 'https://evil.example' }), b)).ok, false);
+  const wrongSite = await authenticator('evil.example', 'https://orch.example.org');
+  const optB2 = await t.call('passkeyRegisterOptions', {}, b);
+  assert.equal((await t.call('passkeyRegister', await wrongSite.create(optB2.challenge), b)).ok, false);
+  const optB3 = await t.call('passkeyRegisterOptions', {}, b);
+  assert.equal((await t.call('passkeyRegister', await dev.create(optB3.challenge), b)).ok, true);
+  const id = (await t.call('home', {}, b)).me.id;
+  await t.call('deleteMember', { id }, t.adminToken);
+  assert.equal(t.store.db.exec('SELECT COUNT(*) AS n FROM passkeys')[0].n, 0);
 });

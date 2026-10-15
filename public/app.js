@@ -14,6 +14,7 @@
   'use strict';
 
   const TOKEN_KEY = 'attendance.token';
+  const USED_KEY = 'attendance.used'; // この端末で一度でもログインしたか（次はログインの画面から出す）
   const WEEKDAYS = '日月火水木金土';
   const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', absent: '欠席', none: '未回答' };
@@ -27,7 +28,7 @@
   const app = document.getElementById('app');
   const state = {
     view: 'auth',
-    authMode: location.hash === '#admin' ? 'admin' : 'register',
+    authMode: location.hash === '#admin' ? 'admin' : (usedBefore() ? 'login' : 'register'),
     open: true,
     parts: [],
     me: null,
@@ -52,7 +53,10 @@
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
+    passkeys: null, // 自分のパスキーの一覧（設定の画面）
   };
+
+  function usedBefore() { try { return localStorage.getItem(USED_KEY) === '1'; } catch (e) { return false; } }
 
   // ---------------- サーバーとのやりとり ----------------
   function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
@@ -89,6 +93,64 @@
   }
   function setBusy(on) { app.querySelectorAll('button, input, select, textarea').forEach((el) => { if (on) el.dataset.wasDisabled = el.disabled ? '1' : ''; el.disabled = on || el.dataset.wasDisabled === '1'; }); }
 
+  // ---------------- パスキー ----------------
+  const PASSKEY = !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+  function fromB64(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  }
+  function toB64(buf) {
+    let s = '';
+    for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  /** パスキーを作って登録する。やめたときは false */
+  async function createPasskey() {
+    const o = await api('passkeyRegisterOptions');
+    if (!o.ok) { state.error = o.message; return false; }
+    let cred;
+    try {
+      cred = await navigator.credentials.create({ publicKey: {
+        challenge: fromB64(o.challenge),
+        rp: o.rp,
+        user: { id: new TextEncoder().encode(o.user.id), name: o.user.name, displayName: o.user.displayName },
+        pubKeyCredParams: o.algs.map((alg) => ({ type: 'public-key', alg })),
+        authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+        excludeCredentials: o.exclude.map((id) => ({ type: 'public-key', id: fromB64(id) })),
+        attestation: 'none',
+        timeout: 120000,
+      } });
+    } catch (e) {
+      if (e && e.name === 'InvalidStateError') state.error = 'この端末のパスキーはすでに登録しています。';
+      else if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーを作れませんでした。';
+      return false;
+    }
+    const r = await api('passkeyRegister', { clientDataJSON: toB64(cred.response.clientDataJSON), attestationObject: toB64(cred.response.attestationObject) });
+    if (!r.ok) { state.error = r.message; return false; }
+    state.passkeys = r.passkeys;
+    return true;
+  }
+  async function passkeyLogin() {
+    const o = await api('passkeyLoginOptions');
+    if (!o.ok) { state.error = o.message; return; }
+    let cred;
+    try {
+      cred = await navigator.credentials.get({ publicKey: { challenge: fromB64(o.challenge), rpId: o.rpId, userVerification: 'required', timeout: 120000 } });
+    } catch (e) {
+      if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーでログインできませんでした。';
+      return;
+    }
+    const r = await api('passkeyLogin', {
+      id: cred.id,
+      clientDataJSON: toB64(cred.response.clientDataJSON),
+      authenticatorData: toB64(cred.response.authenticatorData),
+      signature: toB64(cred.response.signature),
+    });
+    if (!r.ok) { state.error = r.message; return; }
+    await afterLogin(r);
+  }
+
   // ---------------- 小さな道具 ----------------
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -110,7 +172,7 @@
   // ---------------- 画面の組み立て ----------------
   function render() {
     app.classList.toggle('wide', state.view === 'admin');
-    const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin };
+    const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, offer: viewOffer };
     app.innerHTML = (views[state.view] || viewAuth)();
     if (state.view === 'roster') {
       const on = app.querySelector('.day-chip[aria-pressed="true"]');
@@ -126,7 +188,7 @@
     if (!state.me) return '';
     const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
     return `<details class="who"><summary>${label}</summary><div class="menu">
-      ${isMember() ? '<button data-act="go-profile">氏名とパート</button>' : ''}
+      ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
       ${isAdmin() ? '<button data-act="go-admin">管理</button>' : ''}
       <button data-act="logout">ログアウト</button>
     </div></details>`;
@@ -161,12 +223,13 @@
           <button type="button" data-act="auth-mode" data-mode="login" aria-pressed="${!reg}">ログイン</button>
         </div>
         ${reg && !state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+        ${!reg && PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button><div class="or" aria-hidden="true">または</div>' : ''}
         <form data-form="${reg ? 'register' : 'login'}" style="display:flex;flex-direction:column;gap:20px">
           ${reg ? '<label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>' : ''}
           <label class="field">氏名<input class="input" name="name" placeholder="宮教 太郎" autocomplete="name" maxlength="30" required></label>
           ${reg ? partPicker('') : ''}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="4〜8桁の数字" required></label>
-          <button class="cta" type="submit">${reg ? '登録する' : 'ログイン'}</button>
+          <button class="${!reg && PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${reg ? '登録する' : PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
         ${!reg ? '<button class="link" data-act="auth-mode" data-mode="admin">管理者</button>' : ''}`;
     }
@@ -332,15 +395,34 @@
 
   // 自分の氏名とパート
   function viewProfile() {
+    const keys = state.passkeys;
     return top(whoMenu()) + `<main>
       <button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button>
-      <h1>氏名とパート</h1>
+      <h1>設定</h1>
       ${messages()}
-      <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
-        <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
-        ${partPicker(state.me.part)}
-        <button class="cta" type="submit">保存</button>
-      </form>
+      <section class="card pad">
+        <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
+          <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
+          ${partPicker(state.me.part)}
+          <button class="cta" type="submit">保存</button>
+        </form>
+      </section>
+      ${PASSKEY ? `<section class="card">
+        <div class="part-head"><h2>パスキー</h2><span>${keys ? keys.length + '個' : ''}</span></div>
+        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(shortLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(shortLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
+          <div class="actions"><button class="ghost danger" data-act="passkey-delete" data-id="${esc(k.id)}">消す</button></div></div>`).join('') : ''}
+        <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
+      </section>` : ''}
+    </main>`;
+  }
+
+  // 登録やログインのすぐあとに、パスキーを作るよう勧める
+  function viewOffer() {
+    return top(whoMenu()) + `<main class="offer">
+      <h1>パスキーを作りますか</h1>
+      ${messages()}
+      <button class="cta" data-act="passkey-create">作る</button>
+      <button class="link" data-act="go-home">あとで</button>
     </main>`;
   }
 
@@ -493,10 +575,11 @@
   }
   async function afterLogin(r) {
     setToken(r.token);
+    try { localStorage.setItem(USED_KEY, '1'); } catch (e) { /* 残せない端末では何もしない */ }
     state.me = r.me;
     state.flash = '';
     await loadHome();
-    if (isMember()) state.view = 'home';
+    if (isMember()) state.view = PASSKEY && !r.hasPasskey ? 'offer' : 'home';
     else { state.view = 'admin'; await loadAdmin(); }
     if (location.hash) history.replaceState(null, '', location.pathname);
   }
@@ -522,7 +605,27 @@
     },
     'go-home': () => { state.view = isMember() ? 'home' : 'admin'; state.error = ''; render(); },
     'go-roster': () => run(openRoster),
-    'go-profile': () => { state.view = 'profile'; state.flash = ''; state.error = ''; render(); },
+    'go-profile': () => run(async () => {
+      state.view = 'profile'; state.flash = '';
+      const r = await api('passkeys');
+      state.passkeys = r.ok ? r.passkeys : [];
+    }),
+    'passkey-login': () => run(passkeyLogin),
+    'passkey-create': () => run(async () => {
+      const done = await createPasskey();
+      if (!done) return;
+      state.flash = 'パスキーを作りました';
+      if (state.view === 'offer') state.view = 'home';
+    }),
+    'passkey-delete': (el) => {
+      if (!confirm('このパスキーを消しますか？')) return;
+      run(async () => {
+        const r = await api('passkeyDelete', { id: el.dataset.id });
+        if (!r.ok) { state.error = r.message; return; }
+        state.passkeys = r.passkeys;
+        state.flash = 'パスキーを消しました';
+      });
+    },
     'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; await loadAdmin(); }),
     'logout': () => run(async () => {
       await api('logout');

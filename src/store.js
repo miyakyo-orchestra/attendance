@@ -9,6 +9,8 @@
  *   そのあとの読み書きは待たずに一気に行う（途中で別の呼び出しが割り込まない）。
  */
 
+import { ALGS, fromB64url, toB64url, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
+
 export const PARTS = [
   { id: 'Vn', group: 'strings' },
   { id: 'Va', group: 'strings' },
@@ -42,6 +44,8 @@ export const LIMITS = {
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   PBKDF2_ROUNDS: 20000,
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
+  PASSKEYS: 10, // 一人が作れるパスキーの数
+  CHALLENGE_SECONDS: 300, // パスキーの操作を始めてから終えるまでの時間
 };
 
 const STATUSES = ['attend', 'absent'];
@@ -75,6 +79,10 @@ export class Store {
     // ログインの印。token は元に戻せない形（SHA-256）で置く。member_id が空なら管理用パスワードでのログイン
     x(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, member_id TEXT NOT NULL DEFAULT '',
       created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
+    // パスキー。id は認証器が決める番号（base64url）、jwk は公開鍵、alg は署名の方式
+    x(`CREATE TABLE IF NOT EXISTS passkeys (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, jwk TEXT NOT NULL,
+      alg INTEGER NOT NULL, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`);
+    x('CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys (member_id)');
     // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
     x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
     // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人も Vn に直す
@@ -176,6 +184,32 @@ export class Store {
   listDays() {
     return this.db.exec('SELECT id, date, kind, st, en, note FROM days ORDER BY date, st');
   }
+  /** パスキーの相手のサイト（ALLOWED_ORIGIN）と、その名前（rpId） */
+  site() {
+    const origin = String(this.env.ALLOWED_ORIGIN || '').trim();
+    let rpId = '';
+    try { rpId = new URL(origin).hostname; } catch (e) { /* 設定がなければパスキーは使えない */ }
+    return { origin, rpId };
+  }
+  /** パスキーの操作のためのチャレンジ（1回だけ使える乱数）を作る。what は使い道 */
+  newChallenge(what) {
+    this.db.exec('DELETE FROM kv WHERE exp > 0 AND exp < ?', this.now()); // 期限切れの掃除
+    const challenge = randomId(32);
+    this.kput('pk:' + challenge, what, LIMITS.CHALLENGE_SECONDS);
+    return challenge;
+  }
+  /** チャレンジを使い切る。使い道が合っていれば true */
+  useChallenge(challenge, what) {
+    const v = this.kget('pk:' + challenge);
+    this.kdel('pk:' + challenge);
+    return v === what;
+  }
+  passkeyList(memberId) {
+    return this.db.exec('SELECT id, created_at, last_used FROM passkeys WHERE member_id = ? ORDER BY created_at', memberId);
+  }
+  hasPasskey(memberId) {
+    return this.db.exec('SELECT 1 FROM passkeys WHERE member_id = ? LIMIT 1', memberId).length > 0;
+  }
   today() {
     // 日本時間の今日
     return new Date(this.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -228,7 +262,41 @@ const PUBLIC = {
     this.db.exec('UPDATE members SET failures = 0, locked_until = 0 WHERE id = ?', m.id);
     this.kdel('gate:' + c.ip);
     const token = await this.newSession(m.id);
-    return { ok: true, token, me: this.meOf({ member: m, role: m.role }) };
+    return { ok: true, token, me: this.meOf({ member: m, role: m.role }), hasPasskey: this.hasPasskey(m.id) };
+  },
+
+  /** パスキーでログインする前に、チャレンジを受け取る */
+  async passkeyLoginOptions() {
+    const { rpId } = this.site();
+    if (!rpId) return fail('パスキーは使えません。', 'DISABLED');
+    return { ok: true, challenge: this.newChallenge('login'), rpId };
+  },
+
+  /** パスキーでログインする。氏名も暗証番号も要らない */
+  async passkeyLogin(p, c) {
+    this.checkGate(c.ip);
+    const { origin, rpId } = this.site();
+    const failed = () => { this.gateFailed(c.ip); return fail('パスキーでログインできませんでした。', 'PASSKEY_FAILED'); };
+    try {
+      const clientData = fromB64url(p.clientDataJSON);
+      const authData = fromB64url(p.authenticatorData);
+      const challenge = readClientData(clientData, 'webauthn.get', origin);
+      if (!this.useChallenge(challenge, 'login')) return failed();
+      await readAuthData(authData, rpId, false);
+      const key = this.db.exec('SELECT * FROM passkeys WHERE id = ?', String(p.id || ''))[0];
+      if (!key) return fail('このパスキーは登録がありません。暗証番号でログインしてください。', 'PASSKEY_UNKNOWN');
+      const ok = await verifySignature(JSON.parse(key.jwk), key.alg, authData, clientData, fromB64url(p.signature));
+      if (!ok) return failed();
+      const m = this.db.exec('SELECT * FROM members WHERE id = ?', key.member_id)[0];
+      if (!m) return failed();
+      this.kdel('gate:' + c.ip);
+      this.db.exec('UPDATE passkeys SET last_used = ? WHERE id = ?', new Date(this.now()).toISOString(), key.id);
+      const token = await this.newSession(m.id);
+      return { ok: true, token, me: this.meOf({ member: m, role: m.role }), hasPasskey: true };
+    } catch (e) {
+      if (e && e.passkey) return failed();
+      throw e;
+    }
   },
 
   /** 管理用パスワード（Cloudflare の秘密の設定 ADMIN_PASSWORD）でのログイン。最初の管理者を決めるときと、管理者がいなくなったとき用 */
@@ -285,6 +353,55 @@ const PRIVATE = {
     this.db.exec('UPDATE members SET name = ?, part = ? WHERE id = ?', name, part, who.member.id);
     const m = this.db.exec('SELECT * FROM members WHERE id = ?', who.member.id)[0];
     return { ok: true, me: this.meOf({ member: m, role: m.role }) };
+  }],
+
+  /** 自分のパスキーの一覧 */
+  passkeys: ['member', function (p, who) {
+    return { ok: true, passkeys: this.passkeyList(who.member.id) };
+  }],
+
+  /** パスキーを作る前に、チャレンジと、作るのに要る値を受け取る */
+  passkeyRegisterOptions: ['member', function (p, who) {
+    const { rpId } = this.site();
+    if (!rpId) return fail('パスキーは使えません。', 'DISABLED');
+    const m = who.member;
+    return {
+      ok: true,
+      challenge: this.newChallenge('reg:' + m.id),
+      rp: { id: rpId, name: '宮教オケ 出欠' },
+      user: { id: m.id, name: m.name, displayName: m.name },
+      algs: ALGS,
+      exclude: this.passkeyList(m.id).map((k) => k.id),
+    };
+  }],
+
+  /** 作ったパスキーを登録する */
+  passkeyRegister: ['member', async function (p, who) {
+    const { origin, rpId } = this.site();
+    const m = who.member;
+    const failed = () => fail('パスキーを登録できませんでした。', 'PASSKEY_FAILED');
+    let key;
+    try {
+      const clientData = fromB64url(p.clientDataJSON);
+      const challenge = readClientData(clientData, 'webauthn.create', origin);
+      if (!this.useChallenge(challenge, 'reg:' + m.id)) return failed();
+      key = await readAuthData(authDataOf(fromB64url(p.attestationObject)), rpId, true);
+    } catch (e) {
+      if (e && e.passkey) return failed();
+      throw e;
+    }
+    const id = toB64url(key.credId);
+    if (!id || id.length > 1400) return failed();
+    if (this.passkeyList(m.id).length >= LIMITS.PASSKEYS) return fail(`パスキーは${LIMITS.PASSKEYS}個までです。使わないものを消してください。`);
+    if (this.db.exec('SELECT 1 FROM passkeys WHERE id = ?', id).length) return fail('このパスキーはすでに登録しています。', 'DUPLICATE');
+    this.db.exec('INSERT INTO passkeys (id, member_id, jwk, alg, created_at) VALUES (?, ?, ?, ?, ?)',
+      id, m.id, JSON.stringify(key.jwk), key.alg, new Date(this.now()).toISOString());
+    return { ok: true, passkeys: this.passkeyList(m.id) };
+  }],
+
+  passkeyDelete: ['member', function (p, who) {
+    this.db.exec('DELETE FROM passkeys WHERE id = ? AND member_id = ?', String(p.id || ''), who.member.id);
+    return { ok: true, passkeys: this.passkeyList(who.member.id) };
   }],
 
   /** 練習日ごとの、パート別の出欠。欠席理由は本人と、役職・管理者にだけ入れる */
@@ -393,6 +510,7 @@ const PRIVATE = {
     this.db.txn(() => {
       this.db.exec('DELETE FROM answers WHERE member_id = ?', id);
       this.db.exec('DELETE FROM sessions WHERE member_id = ?', id);
+      this.db.exec('DELETE FROM passkeys WHERE member_id = ?', id);
       this.db.exec('DELETE FROM members WHERE id = ?', id);
     });
     return { ok: true };
