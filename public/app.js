@@ -21,7 +21,6 @@
   const ICON = {
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
     next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
-    info: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.5v.01"/></svg>',
     list: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>',
     people: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4"/><path d="M18 14.8c2 .8 3.2 2.6 3.5 5.2"/></svg>',
     gear: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h10"/><path d="M18 7h2"/><circle cx="16" cy="7" r="2"/><path d="M4 17h4"/><path d="M12 17h8"/><circle cx="10" cy="17" r="2"/></svg>',
@@ -159,17 +158,59 @@
   }
 
   // ---------------- 小さな道具 ----------------
-  /** i ボタンと、押すと出る吹き出し */
-  function tip(id, label, text) {
-    return `<span class="tip"><button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="${id}" aria-label="${esc(label)}">${ICON.info}</button><span id="${id}" class="tip-body" role="tooltip" hidden>${esc(text)}</span></span>`;
+  // ---------------- i ボタン（説明の吹き出し） ----------------
+  // 練習室予約システムと同じ作り。吹き出しは1つだけで、ページの一番外側に置く（枠の中で切れないように）。
+  // マウスのある端末: ボタンの上にしばらく止めると、マウスの右下に小さく出る。外れるとすぐ消える。
+  // 指の端末: 押すと出て、もう一度押すか、ほかを押すと消える。
+  function tip(label, text) {
+    return `<button type="button" class="info" aria-label="${esc(label)}" aria-expanded="false" data-tip="${esc(text)}"></button>`;
   }
-  function closeTips(except) {
-    app.querySelectorAll('.info[aria-expanded="true"]').forEach((b) => {
-      if (b === except) return;
-      b.setAttribute('aria-expanded', 'false');
-      document.getElementById(b.getAttribute('aria-controls')).hidden = true;
+  let tipFor = null, tipTimer = 0;
+  const tipPop = document.createElement('div');
+  tipPop.className = 'tip-pop';
+  tipPop.setAttribute('role', 'tooltip');
+  tipPop.hidden = true;
+  document.body.appendChild(tipPop);
+  function showTip(b, x, y) {
+    tipFor = b; b.setAttribute('aria-expanded', 'true');
+    tipPop.textContent = b.dataset.tip; tipPop.hidden = false;
+    const w = tipPop.offsetWidth, h = tipPop.offsetHeight;
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    let left = x + 10, top = y + 18;
+    if (left + w > vw - 8) left = Math.max(8, vw - w - 8);
+    if (top + h > vh - 8) top = y - h - 10; // 下に入らなければ上に
+    tipPop.style.left = `${window.scrollX + left}px`;
+    tipPop.style.top = `${window.scrollY + top}px`;
+  }
+  function closeTip() { clearTimeout(tipTimer); if (tipFor) tipFor.setAttribute('aria-expanded', 'false'); tipFor = null; tipPop.hidden = true; }
+  const canHover = window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (canHover) {
+    document.addEventListener('mouseover', (e) => {
+      const b = e.target.closest && e.target.closest('.info');
+      if (!b || b === tipFor) return;
+      closeTip();
+      const { clientX: x, clientY: y } = e;
+      tipTimer = setTimeout(() => showTip(b, x, y), 500);
+    });
+    document.addEventListener('mouseout', (e) => {
+      const b = e.target.closest && e.target.closest('.info');
+      if (b && !b.contains(e.relatedTarget)) closeTip();
     });
   }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.info');
+    if (!b) { closeTip(); return; }
+    e.preventDefault(); e.stopPropagation();
+    if (canHover) return; // マウスでは、止めておくだけで出る
+    if (tipFor === b) { closeTip(); return; }
+    closeTip();
+    const r = b.getBoundingClientRect();
+    showTip(b, r.left, r.bottom - 10);
+  }, true);
+  window.addEventListener('scroll', closeTip, { passive: true });
+  window.addEventListener('resize', closeTip);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTip(); });
+
   /** CSV をファイルとして保存させる。先頭の印（BOM）があると、Excel でも文字化けしない */
   function download(csv, name) {
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
@@ -206,6 +247,7 @@
     app.classList.toggle('wide', state.view === 'admin');
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
     const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, offer: viewOffer };
+    closeTip();
     app.innerHTML = (views[state.view] || viewAuth)();
     if (state.view === 'roster') {
       const on = app.querySelector('.day-chip[aria-pressed="true"]');
@@ -379,7 +421,7 @@
         <div class="reason-box" style="display:flex;flex-direction:column;gap:8px"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
             <label for="reason">欠席の理由 任意</label>
-            ${tip('reason-note', '理由を読める人', '理由を読めるのは本人と役職・管理者だけです。')}
+            ${tip('理由を読める人', '理由を読めるのは本人と役職・管理者だけです。')}
           </div>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
@@ -465,7 +507,7 @@
         </form>
       </section>
       ${PASSKEY ? `<section class="card">
-        <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo('passkey-note')}</div><span>${keys ? keys.length + '個' : ''}</span></div>
+        <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo()}</div><span>${keys ? keys.length + '個' : ''}</span></div>
         ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(shortLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(shortLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
           <div class="actions"><button class="ghost danger" data-act="passkey-delete" data-id="${esc(k.id)}">消す</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
@@ -474,14 +516,14 @@
   }
 
   // パスキーの説明（i ボタンで開く）
-  function passkeyInfo(id) {
-    return tip(id, 'パスキーとは', '指紋や顔、画面ロックでログインできるようになります。暗証番号でのログインも使えます。');
+  function passkeyInfo() {
+    return tip('パスキーとは', '指紋や顔、画面ロックでログインできるようになります。暗証番号でのログインも使えます。');
   }
 
   // 登録やログインのすぐあとに、パスキーを作るよう勧める
   function viewOffer() {
     return top(whoMenu()) + `<main class="offer">
-      <div class="offer-head"><h1>パスキーを作りますか</h1>${passkeyInfo('offer-note')}</div>
+      <div class="offer-head"><h1>パスキーを作りますか</h1>${passkeyInfo()}</div>
       ${messages()}
       <button class="cta" data-act="passkey-create">作る</button>
       <button class="link" data-act="go-home">あとで</button>
@@ -576,7 +618,7 @@
         </form>
       </section>` : `<section class="card pad">
         <div class="section-title">
-          <div class="label-row"><h2>練習日を足す</h2>${tip('pick-note', '選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
+          <div class="label-row"><h2>練習日を足す</h2>${tip('選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
           ${state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}
         </div>
         ${pickCalendar()}
@@ -784,20 +826,6 @@
       setToken('');
       Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, admin: null, flash: '' });
     }),
-    'info': (el) => {
-      closeTips(el);
-      const body = document.getElementById(el.getAttribute('aria-controls'));
-      const open = body.hidden;
-      body.hidden = !open;
-      el.setAttribute('aria-expanded', String(open));
-      if (!open) return;
-      // 吹き出しが画面の端からはみ出さないよう、横の位置を寄せる
-      body.style.setProperty('--shift', '0px');
-      const r = body.getBoundingClientRect();
-      const edge = 12;
-      const shift = r.left < edge ? edge - r.left : r.right > window.innerWidth - edge ? window.innerWidth - edge - r.right : 0;
-      body.style.setProperty('--shift', shift + 'px');
-    },
     'roster-day': (el) => run(async () => { state.rosterCal = false; await loadRoster(el.dataset.id); }),
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
     'roster-reasons': () => { state.rosterReasons = !state.rosterReasons; render(); },
@@ -961,7 +989,6 @@
   document.addEventListener('click', (ev) => {
     const open = app.querySelector('details.who[open]');
     if (open && !open.contains(ev.target)) open.open = false;
-    if (!ev.target.closest('.tip')) closeTips();
   });
   window.addEventListener('hashchange', () => {
     if (location.hash === '#admin' && state.view === 'auth') { state.authMode = 'admin'; render(); }
