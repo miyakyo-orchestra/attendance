@@ -2,7 +2,7 @@
 
 宮城教育大学オーケストラの練習出欠システム。団員が練習日ごとに出欠を入れ、パート別の一覧を見られる。欠席理由は本人と役職・管理者だけが読める。
 
-Cloudflare Workers と Durable Object の SQLite だけで動く（無料のプラン）。
+画面は GitHub Pages（https://miyakyo-orchestra.github.io/attendance/）、データは Cloudflare Workers と Durable Object の SQLite に置く（どちらも無料）。
 
 - 今の動き: [docs/仕様書.md](docs/仕様書.md)
 - 決めたことと理由: [docs/設計メモ.md](docs/設計メモ.md)

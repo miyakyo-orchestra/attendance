@@ -1,0 +1,20 @@
+# 宮教オケ 出欠のサーバー（Cloudflare Workers）の設定。画面は GitHub Pages が配る（public/）。
+# main に push すると、GitHub Actions（.github/workflows/deploy.yml）がこの設定で Cloudflare に公開する。
+name = "miyakyo-orchestra-attendance"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# 呼び出しを受け付ける画面のサイト（GitHub Pages）。手元で試すときは .dev.vars で上書きする
+[vars]
+ALLOWED_ORIGIN = "https://miyakyo-orchestra.github.io"
+
+# 出欠の正本を置く Durable Object（worker.js の Main、中身は store.js）。
+# 無料のプランで使えるのは SQLite を使う形だけなので new_sqlite_classes にする。
+[[durable_objects.bindings]]
+name = "MAIN"
+class_name = "Main"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Main"]
