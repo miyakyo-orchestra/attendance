@@ -489,27 +489,6 @@ const PRIVATE = {
     return { ok: true, days: this.listDays() };
   }],
 
-  /** 管理用パスワードで入った人が、自分を管理者の団員として登録する（合言葉は要らない）。今のログインがそのまま団員のログインになる */
-  registerSelf: ['admin', async function (p, who) {
-    if (who.member) return fail('すでに団員としてログインしています。');
-    const name = cleanName(p.name);
-    const part = String(p.part || '');
-    const pin = String(p.pin || '');
-    if (!name) return fail('氏名を入れてください。');
-    if (!this.partIds().includes(part)) return fail('パートを選んでください。');
-    if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
-    const pinHash = await hashSecret(pin);
-    if (this.db.exec('SELECT 1 FROM members WHERE name = ?', name).length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
-    const id = randomId(9);
-    this.db.txn(() => {
-      this.db.exec('INSERT INTO members (id, name, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        id, name, part, 'admin', pinHash, new Date(this.now()).toISOString());
-      this.db.exec('UPDATE sessions SET member_id = ? WHERE token = ?', id, who.session);
-    });
-    const m = this.db.exec('SELECT * FROM members WHERE id = ?', id)[0];
-    return { ok: true, me: this.meOf({ member: m, role: 'admin' }) };
-  }],
-
   setRole: ['admin', function (p, who) {
     const id = String(p.id || '');
     const role = String(p.role || '');

@@ -163,7 +163,7 @@
   // マウスのある端末: ボタンの上にしばらく止めると、マウスの右下に小さく出る。外れるとすぐ消える。
   // 指の端末: 押すと出て、もう一度押すか、ほかを押すと消える。
   function tip(label, text) {
-    return `<button type="button" class="info" aria-label="${esc(label)}" aria-expanded="false" data-tip="${esc(text)}"></button>`;
+    return `<button type="button" class="info" aria-label="${esc(label)}" aria-expanded="false" data-tip="${esc(text)}"><svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="6.4" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="4.1" r="0.9" fill="currentColor"/><rect x="6.35" y="5.9" width="1.3" height="4.6" rx="0.65" fill="currentColor"/></svg></button>`;
   }
   let tipFor = null, tipTimer = 0;
   const tipPop = document.createElement('div');
@@ -592,15 +592,6 @@
       <h1>管理</h1>
       ${admin ? `<div class="seg" role="group" aria-label="管理の項目">${TABS.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>` : ''}
       ${messages()}
-      ${isMember() ? '' : `<section class="card pad">
-        <div class="section-title"><h2>自分を団員として登録</h2></div>
-        <form data-form="register-self" style="display:flex;flex-direction:column;gap:16px">
-          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="name" maxlength="30" required></label>
-          ${partPicker('')}
-          <label class="field">暗証番号<input class="input" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="new-password" minlength="4" maxlength="8" placeholder="4〜8桁の数字" required></label>
-          <button class="cta" type="submit">管理者として登録</button>
-        </form>
-      </section>`}
       ${body}
     </main>` + tabs();
   }
@@ -919,14 +910,6 @@
       state.flash = dates.length === 1 ? `${shortLabel(dates[0])}を足しました` : `${shortLabel(dates[0])}から${shortLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
       state.picked = [];
       state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
-      await Promise.all([loadAdmin(), loadHome()]);
-    }),
-    'register-self': (f) => run(async () => {
-      if (!f.part) { state.error = 'パートを選んでください。'; return; }
-      const r = await api('registerSelf', f);
-      if (!r.ok) { state.error = r.message; return; }
-      state.me = r.me;
-      state.flash = '管理者として登録しました';
       await Promise.all([loadAdmin(), loadHome()]);
     }),
     'part': (f) => run(async () => {

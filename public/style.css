@@ -161,16 +161,12 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .choice input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
 .choice input:disabled + span { opacity: 0.6; }
 .label-row { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; color: var(--sub); }
-/* i ボタンと吹き出し（練習室予約システムと同じ形）。丸に細い i。中の i は文字ではなく点と棒で描く（端末の書体でずれないように） */
+/* i ボタンと吹き出し（練習室予約システムと同じ形）。丸に細い i を、文字ではなく図で描く（端末の書体や画面の細かさでずれないように） */
 .info {
-  position: relative; display: inline-flex; flex: none; width: 28px; height: 28px; margin: -8px -6px -8px -4px; padding: 0;
-  vertical-align: middle; border: none; background: none; color: var(--sub); opacity: .7; font-size: 0; cursor: help;
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; margin: -8px -6px -8px -4px; padding: 0;
+  position: relative; top: -1px; vertical-align: middle; border: none; background: none; color: var(--sub); opacity: .7; cursor: help;
 }
-.info::before { content: ""; position: absolute; left: 7px; top: 7px; width: 14px; height: 14px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%; }
-.info::after {
-  content: ""; position: absolute; left: 50%; top: 10px; width: 1.5px; height: 7px; transform: translateX(-50%);
-  background: linear-gradient(currentColor 0 1.5px, transparent 1.5px 3px, currentColor 3px);
-}
+.info svg { display: block; width: 14px; height: 14px; }
 @media (hover: hover) { .info:hover { opacity: 1; } }
 .info[aria-expanded="true"] { opacity: 1; color: var(--blue); }
 .tip-pop {

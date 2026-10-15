@@ -211,25 +211,6 @@ test('練習日をまとめて足す', async () => {
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
 });
 
-test('管理用パスワードで入った人は、自分を管理者として登録できる', async () => {
-  const t = setup();
-  const admin = await t.call('adminLogin', { password: 'admin-pass' });
-  // 合言葉が決まっていなくても登録できる
-  const r = await t.call('registerSelf', { name: '最初の 管理者', part: 'Vc', pin: '2468' }, admin.token);
-  assert.equal(r.ok, true, r.message);
-  assert.equal(r.me.role, 'admin');
-  assert.equal(r.me.name, '最初の　管理者');
-  // 同じログインのまま、団員として出欠を入れられる
-  const home = await t.call('home', {}, admin.token);
-  assert.equal(home.me.id, r.me.id);
-  assert.equal((await t.call('registerSelf', { name: 'もう一人', part: 'Vc', pin: '2468' }, admin.token)).ok, false);
-  // 団員の登録・ログインと同じ暗証番号で入り直せる
-  assert.equal((await t.call('setPassphrase', { passphrase: 'orchestra' }, admin.token)).ok, true);
-  const again = await t.call('login', { name: '最初の 管理者', pin: '2468' });
-  assert.equal(again.ok, true);
-  assert.equal(again.me.role, 'admin');
-});
-
 test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   const t = await ready();
   await join(t, '前の人', 'Vn');
