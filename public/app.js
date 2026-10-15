@@ -65,6 +65,7 @@
     entryId: '',
     roster: null,
     rosterDay: '',
+    rosterCache: {}, // 一度読んだ練習日の一覧。日付を押したらまずこれを出し、裏で読み直す
     rosterGroup: 'all',
     rosterReasons: true,
     rosterOpen: {}, // パート別の一覧で、出席の人の名前を開いているパート
@@ -101,6 +102,7 @@
     if (data.code === 'UNAUTHORIZED') {
       setToken('');
       state.me = null;
+      state.rosterCache = {};
       state.view = 'auth';
       state.authMode = 'login';
     }
@@ -292,12 +294,40 @@
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
     closeTip();
     app.innerHTML = (VIEWS[state.view] || viewAuth)();
-    if (state.view === 'roster') {
-      const on = app.querySelector('.day-chip[aria-pressed="true"]');
-      if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
-    }
+    if (state.view === 'roster') keepChipScroll();
     if (state.busy) setBusy(true);
     syncHistory();
+  }
+  // 一覧の日付の帯は、描き直しても横の位置を保つ。日付を選んだら、その日が真ん中に来るまで滑らかに動かす
+  let chipScroll = null;
+  let chipTarget = null; // 動いている途中の行き先。途中で描き直しても、そこへ向かって動き続ける
+  let chipSlide = false;
+  const REDUCE_MOTION = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function keepChipScroll() {
+    const strip = app.querySelector('.day-chips');
+    if (!strip) return;
+    const on = strip.querySelector('[aria-pressed="true"]');
+    const max = strip.scrollWidth - strip.clientWidth;
+    const center = on ? Math.max(0, Math.min(max, on.offsetLeft - strip.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2)) : 0;
+    if (chipScroll === null) strip.scrollLeft = center; // はじめて開いたときは、動かさずに真ん中に置く
+    else {
+      strip.scrollLeft = chipScroll;
+      if (chipSlide || chipTarget !== null) {
+        chipTarget = center;
+        strip.scrollTo({ left: center, behavior: REDUCE_MOTION ? 'auto' : 'smooth' });
+      } else if (on) {
+        const l = on.offsetLeft - strip.offsetLeft;
+        if (l < strip.scrollLeft || l + on.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = center;
+      }
+    }
+    chipSlide = false;
+    chipScroll = strip.scrollLeft;
+    strip.onscroll = () => {
+      chipScroll = strip.scrollLeft;
+      if (chipTarget !== null && Math.abs(chipScroll - chipTarget) < 1) chipTarget = null;
+    };
+    // 指でなぞって止めたときは、行き先を忘れる（描き直しで勝手に戻らないように）
+    strip.ontouchstart = () => { chipTarget = null; };
   }
   /** 練習日（管理用パスワードで入ったときは管理）に戻る */
   function goHome() {
@@ -592,7 +622,7 @@
         <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選ぶ">${ICON.cal}</button>
       </div>
       ${state.rosterCal ? rosterCalendar() : ''}
-      ${r && r.day.id === state.rosterDay ? rosterBody(r) : ''}
+      ${r ? `<div class="roster-body${r.day.id === state.rosterDay ? '' : ' loading'}">${rosterBody(r)}</div>` : ''}
     `);
   }
   /** 出欠ごとの人数 */
@@ -873,7 +903,19 @@
   async function loadRoster(dayId) {
     state.rosterDay = dayId;
     const r = await api('roster', { dayId });
-    if (r.ok) { state.roster = r; state.parts = r.parts; } else if (r.code !== 'UNAUTHORIZED') state.error = r.message;
+    if (r.ok) { state.rosterCache[dayId] = r; state.parts = r.parts; } else if (r.code !== 'UNAUTHORIZED') state.error = r.message;
+    // 読んでいるあいだに別の日が押されていたら、その日の表示を上書きしない
+    if (state.rosterDay === dayId && r.ok) state.roster = r;
+  }
+  /** 一覧で日付を選ぶ。押したらすぐ選んだ印を動かし、読んだことのある日はその内容をすぐ出す */
+  function pickRosterDay(dayId) {
+    state.rosterCal = false;
+    state.error = '';
+    state.rosterDay = dayId;
+    chipSlide = true;
+    if (state.rosterCache[dayId]) state.roster = state.rosterCache[dayId];
+    render();
+    loadRoster(dayId).then(() => { if (!state.busy && (state.view !== 'roster' || state.rosterDay === dayId)) render(); });
   }
   async function loadAdmin() {
     const r = await api('adminData');
@@ -897,6 +939,7 @@
   async function afterLogin(r) {
     setToken(r.token);
     state.me = r.me;
+    state.rosterCache = {};
     state.flash = '';
     await loadHome();
     if (isMember() && PASSKEY && !r.hasPasskey) state.view = 'offer';
@@ -916,7 +959,7 @@
     'logout': () => run(async () => {
       await api('logout');
       setToken('');
-      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, admin: null, flash: '' });
+      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, rosterCache: {}, admin: null, flash: '' });
     }),
 
     // 画面の行き来
@@ -950,7 +993,7 @@
     },
 
     // 一覧
-    'roster-day': (el) => run(async () => { state.rosterCal = false; await loadRoster(el.dataset.id); }),
+    'roster-day': (el) => pickRosterDay(el.dataset.id),
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
     'roster-reasons': () => { state.rosterReasons = !state.rosterReasons; render(); },
     'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
