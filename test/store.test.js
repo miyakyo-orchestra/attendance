@@ -66,10 +66,10 @@ test('登録・ログイン・出欠の入力', async () => {
 
   const a = await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '教育実習' }, token);
   assert.equal(a.ok, true);
-  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'absent', reason: '教育実習' });
+  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'absent', reason: '教育実習', at: '' });
   // 出席に変えると理由は消える
   await t.call('answer', { dayId: t.dayId, status: 'attend', reason: 'のこる？' }, token);
-  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'attend', reason: '' });
+  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'attend', reason: '', at: '' });
 
   // 別の端末からログイン
   const login = await t.call('login', { name: '宮教 太郎', pin: '1234' });
@@ -169,9 +169,9 @@ test('CSV の書き出し', async () => {
   await t.call('answer', { dayId: t.dayId, status: 'absent', reason: 'カンマ, と "引用"' }, a);
   const r = await t.call('exportCsv', {}, t.adminToken);
   const lines = r.csv.trim().split('\r\n');
-  assert.equal(lines[0], '日付,種類,開始,終了,氏名,パート,出欠,欠席理由,回答日時');
-  assert.match(lines[1], /^2026-10-17,分奏,13:00,17:00,未回答の人,Vn,未回答,,$/);
-  assert.match(lines[2], /^2026-10-17,分奏,13:00,17:00,'=式の人,Va,欠席,"カンマ, と ""引用""",2026/);
+  assert.equal(lines[0], '日付,種類,開始,終了,氏名,パート,出欠,時刻,欠席理由,回答日時');
+  assert.match(lines[1], /^2026-10-17,分奏,13:00,17:00,未回答の人,Vn,未回答,,,$/);
+  assert.match(lines[2], /^2026-10-17,分奏,13:00,17:00,'=式の人,Va,欠席,,"カンマ, と ""引用""",2026/);
 });
 
 test('自分の氏名とパートを直せる', async () => {
@@ -345,4 +345,79 @@ test('パスキーはほかの人のチャレンジやサイトでは作れず�
   const id = (await t.call('home', {}, b)).me.id;
   await t.call('deleteMember', { id }, t.adminToken);
   assert.equal(t.store.db.exec('SELECT COUNT(*) AS n FROM passkeys')[0].n, 0);
+});
+
+test('遅刻と早退は時刻を付けて入れられ、時刻は誰にでも見える', async () => {
+  const t = await ready();
+  const a = await join(t, '遅れる人', 'Tuba');
+  const b = await join(t, '見る人', 'Hr');
+  let r = await t.call('answer', { dayId: t.dayId, status: 'late', at: '14:30', reason: '入らない' }, a);
+  assert.equal(r.ok, true, r.message);
+  assert.deepEqual(r.answer, { status: 'late', reason: '', at: '14:30' });
+  assert.equal((await t.call('answer', { dayId: t.dayId, status: 'early', at: '25:00' }, a)).ok, false);
+  const roster = await t.call('roster', { dayId: t.dayId }, b);
+  const me = roster.members.find((m) => m.name === '遅れる人');
+  assert.equal(me.status, 'late');
+  assert.equal(me.at, '14:30');
+  assert.equal('reason' in me, false);
+  // 欠席に変えると時刻は消える
+  r = await t.call('answer', { dayId: t.dayId, status: 'absent', at: '14:30' }, a);
+  assert.equal(r.answer.at, '');
+  const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
+  assert.match(csv, /遅れる人,Tuba,欠席,,,/);
+});
+
+test('役職は練習日を登録できるが、団員の管理はできない', async () => {
+  const t = await ready();
+  const o = await join(t, '役職の人', 'Fl');
+  const id = (await t.call('home', {}, o)).me.id;
+  await t.call('setRole', { id, role: 'officer' }, t.adminToken);
+  const data = await t.call('adminData', {}, o);
+  assert.equal(data.ok, true);
+  assert.equal('members' in data, false);
+  assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, o)).ok, true);
+  assert.equal((await t.call('deleteDay', { id: t.dayId }, o)).ok, true);
+  assert.equal((await t.call('setRole', { id, role: 'admin' }, o)).code, 'FORBIDDEN');
+  assert.equal((await t.call('exportCsv', {}, o)).code, 'FORBIDDEN');
+  const m = await join(t, '団員', 'Ob');
+  assert.equal((await t.call('saveDays', { dates: ['2026-11-02'] }, m)).code, 'FORBIDDEN');
+});
+
+test('年度でまとめて消す', async () => {
+  const t = await ready(); // 今日は 2026-10-15、練習日は 2026-10-17
+  await t.call('saveDays', { dates: ['2025-04-01', '2026-03-31', '2025-03-31'] }, t.adminToken);
+  const a = await join(t, '団員', 'Vc');
+  const csv = await t.call('exportCsv', { year: 2025 }, t.adminToken);
+  assert.equal(csv.csv.trim().split('\r\n').length, 3); // 見出しと2日分
+  assert.equal((await t.call('deleteYear', { year: 2026 }, t.adminToken)).ok, false); // 終わっていない
+  const r = await t.call('deleteYear', { year: 2025 }, t.adminToken);
+  assert.equal(r.deleted, 2);
+  assert.deepEqual(r.days.map((d) => d.date), ['2025-03-31', '2026-10-17']);
+  assert.equal((await t.call('deleteYear', { year: 2024 }, a)).code, 'FORBIDDEN');
+});
+
+test('団員をまとめて消す', async () => {
+  const t = await ready();
+  const a = await join(t, 'A', 'Vc');
+  const b = await join(t, 'B', 'Vc');
+  await join(t, 'C', 'Vc');
+  const ids = [(await t.call('home', {}, a)).me.id, (await t.call('home', {}, b)).me.id];
+  const r = await t.call('deleteMembers', { ids }, t.adminToken);
+  assert.equal(r.deleted, 2);
+  assert.deepEqual((await t.call('adminData', {}, t.adminToken)).members.map((m) => m.name), ['C']);
+});
+
+test('パートを足し引きできる', async () => {
+  const t = await ready();
+  assert.ok((await t.call('info', {})).parts.some((p) => p.id === 'Tuba'));
+  let r = await t.call('addPart', { id: 'Hp', group: 'strings' }, t.adminToken);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.parts.filter((p) => p.group === 'strings').map((p) => p.id), ['Vn', 'Va', 'Vc', 'Cb', 'Hp']);
+  assert.equal((await t.call('addPart', { id: 'hp', group: 'winds' }, t.adminToken)).code, 'DUPLICATE');
+  assert.equal((await t.call('addPart', { id: 'ハープ', group: 'winds' }, t.adminToken)).ok, false);
+  await join(t, 'ハープの人', 'Hp');
+  assert.equal((await t.call('deletePart', { id: 'Hp' }, t.adminToken)).code, 'IN_USE');
+  r = await t.call('deletePart', { id: 'Fg' }, t.adminToken);
+  assert.equal(r.parts.some((p) => p.id === 'Fg'), false);
+  assert.equal((await t.call('register', { passphrase: 'orchestra', name: 'X', part: 'Fg', pin: '1234' })).ok, false);
 });

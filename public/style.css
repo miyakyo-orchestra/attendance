@@ -2,7 +2,7 @@
 :root {
   --bg: #f4f5f7; --surface: #ffffff; --ink: #15181e; --on-ink: #ffffff; --sub: #5d6470;
   --line: #e3e5e9; --field: #d3d6dc; --muted: #e9ebee;
-  --blue: #2459d6; --blue-soft: #e6edfb;
+  --blue: #2459d6; --blue-soft: #e6edfb; --blue-mid: #8fb0ee;
   --amber: #ea7a1e; --amber-ink: #a44e0a; --amber-soft: #fcefe3;
   --grey: #9aa1ac; --on-accent: #ffffff; --danger: #c0352b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -12,7 +12,7 @@
   :root {
     --bg: #0f1115; --surface: #191c22; --ink: #eceef2; --on-ink: #0f1115; --sub: #a0a7b3;
     --line: #2a2e36; --field: #3a3f49; --muted: #23272e;
-    --blue: #7ba2f2; --blue-soft: #1d2a45;
+    --blue: #7ba2f2; --blue-soft: #1d2a45; --blue-mid: #3f5d96;
     --amber: #f0a056; --amber-ink: #f3b77c; --amber-soft: #3a2a1b;
     --grey: #767d89; --on-accent: #0f1115; --danger: #f08a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -57,6 +57,10 @@ h2 { margin: 0; font-size: 15px; font-weight: 700; }
   height: 48px; padding: 0 14px; font-size: 16px; color: var(--ink);
   border: 1px solid var(--field); border-radius: 10px; background: var(--surface); width: 100%;
 }
+/* iPhone の Safari では時刻と日付の欄が枠からはみ出し、文字が中央に寄るので、幅と寄せをそろえる */
+.input, .field { min-width: 0; }
+.input[type="time"], .input[type="date"] { -webkit-appearance: none; appearance: none; display: block; line-height: 46px; }
+.input::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }
 .textarea { height: auto; padding: 12px 14px; line-height: 1.7; resize: vertical; }
 .select { appearance: auto; }
 .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -147,7 +151,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .choice { position: relative; }
 .choice input { position: absolute; opacity: 0; inset: 0; margin: 0; }
 .choice span {
-  display: flex; align-items: center; justify-content: center; min-height: 88px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; min-height: 72px; border-radius: 12px;
   font-size: 18px; font-weight: 700; background: var(--surface); border: 1px solid var(--field);
 }
 .choice input:checked + span.attend { background: var(--blue); color: var(--on-accent); border-color: var(--blue); }
@@ -176,7 +180,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--muted); }
 .bar .attend { background: var(--blue); }
 .bar .absent { background: var(--amber); }
-.counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .counts div { display: flex; flex-direction: column; gap: 2px; }
 .counts small { font-size: 12px; color: var(--sub); }
 .counts b { font-size: 24px; }
@@ -236,3 +240,35 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .offer { justify-content: center; gap: 20px; padding-bottom: 20vh; }
 .offer h1 { text-align: center; }
 .offer .link { align-self: center; }
+
+/* 遅刻・早退（出席の仲間なので青の薄い色） */
+.pill.late, .pill.early { background: var(--blue-soft); color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue-mid); }
+.dot.late, .dot.early { background: var(--blue-mid); border: none; }
+.bar .late { background: var(--blue-mid); }
+.counts .late b { color: var(--blue); }
+.counts small { white-space: nowrap; }
+.choice input:checked + span.late, .choice input:checked + span.early { background: var(--blue-soft); color: var(--blue); border-color: var(--blue); }
+
+/* パート別: 出席の人をまとめた行 */
+.attend-row { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; min-height: 44px; background: none; border: none; border-top: 1px solid var(--line); font-size: 14px; color: var(--blue); font-weight: 500; }
+.part-head + .attend-row { border-top: none; }
+.names { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
+.names span { font-size: 14px; padding: 4px 10px; border-radius: 999px; background: var(--blue-soft); color: var(--ink); }
+
+/* 管理: 団員を選ぶ印 */
+.check { flex: none; width: 32px; height: 44px; display: flex; align-items: center; justify-content: center; margin-left: -8px; }
+.check input { width: 20px; height: 20px; accent-color: var(--ink); margin: 0; }
+.list-row .main { flex: 1; }
+
+/* 下のタブ */
+.app.has-tabs main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center;
+  background: var(--surface); border-top: 1px solid var(--line); padding: 4px 8px max(4px, env(safe-area-inset-bottom));
+}
+.tabs button {
+  flex: 1; max-width: 160px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: none; color: var(--sub); font-size: 11px; font-weight: 500;
+}
+.tabs button[aria-current="page"] { color: var(--ink); }
+.tabs button[aria-current="page"] svg { stroke-width: 2.4; }
