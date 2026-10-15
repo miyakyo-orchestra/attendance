@@ -89,6 +89,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .cta:disabled { background: var(--muted); color: var(--sub); border-color: var(--muted); }
 .ghost { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--field); background: var(--surface); font-size: 14px; font-weight: 500; }
 .ghost.danger { color: var(--danger); }
+.ghost.icon { width: 44px; padding: 0; display: inline-grid; place-items: center; }
 .link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 12px; min-height: 44px; }
 .icon { width: 44px; height: 44px; background: none; border: none; display: flex; align-items: center; justify-content: center; color: var(--sub); padding: 0; flex: none; }
 .icon svg { width: 20px; height: 20px; }

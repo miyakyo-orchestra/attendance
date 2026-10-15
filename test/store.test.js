@@ -19,7 +19,7 @@ function setup(opts) {
   let now = Date.parse('2026-10-15T03:00:00Z'); // 日本時間 10月15日 12時
   const store = new Store(db, Object.assign({ ADMIN_PASSWORD: 'admin-pass', ALLOWED_ORIGIN: 'https://orch.example.org' }, opts), () => now);
   // テストでは氏名を name: '宮教 太郎' と書き、送るときに姓と名に分ける（スペースがなければ1文字目を姓に）
-  const call = (action, params, token, ip) => store.api({ action, params: splitName(params) }, { token, ip: ip || '1.1.1.1' });
+  const call = (action, params, token, ip, raw) => store.api({ action, params: raw ? params : splitName(params) }, { token, ip: ip || '1.1.1.1' });
   return { store, call, advance: (ms) => { now += ms; } };
 }
 
@@ -244,6 +244,9 @@ test('姓と名を分けて登録し、前に登録した人も姓と名に分�
   const rows = t.store.db.exec('SELECT name, sei, mei FROM members ORDER BY name');
   assert.deepEqual(rows.map((r) => ({ ...r })), [{ name: '一語', sei: '一語', mei: '' }, { name: '前の人', sei: '前の', mei: '人' }]);
   assert.equal((await t.call('login', { sei: '前の', mei: '人', pin: '1234' })).ok, true);
+  // ログインは氏名一つの欄。スペースがあってもなくても通る
+  assert.equal((await t.call('login', { name: '前の人', pin: '1234' }, undefined, undefined, true)).ok, true);
+  assert.equal((await t.call('login', { name: '前の 人', pin: '1234' }, undefined, undefined, true)).ok, true);
 });
 
 test('ログインに合言葉は要らないが、同じ接続元からの誤りが続けば止まる', async () => {
