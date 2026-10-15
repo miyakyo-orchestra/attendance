@@ -425,7 +425,7 @@
     const byDate = {};
     for (const d of state.events) if (monthOf(d.date) === ym) (byDate[d.date] = byDate[d.date] || []).push(d);
     let cells = '';
-    for (let i = 0; i < first; i++) cells += '<div class="mv-cell"></div>';
+    for (let i = 0; i < first; i++) cells += '<div class="mv-cell blank"></div>';
     for (let n = 1; n <= count; n++) {
       const date = `${ym}-${String(n).padStart(2, '0')}`;
       const ds = byDate[date] || [];
@@ -433,16 +433,18 @@
       // 予定は三つまで出し、それより多ければ数だけを出す
       const shown = ds.length > 3 ? ds.slice(0, 2) : ds;
       const label = `${m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (!d.noentry && isMember() ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
-      cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 ? ' sun' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
+      cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
         ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${!d.noentry && isMember() ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
-    return `<div class="card cal mv">
-      <div class="cal-head">
+    const away = state.calDate !== state.today;
+    return `<div class="mv">
+      <div class="mv-head">
+        <h2 class="mv-title"><small>${y}年</small>${m}月</h2>
+        ${away ? '<button class="mv-today" data-act="cal-today">今日</button>' : ''}
         <button class="icon" data-act="month" data-n="-1" aria-label="前の月">${ICON.back}</button>
-        <span class="cal-title">${y}年${m}月</span>
         <button class="icon" data-act="month" data-n="1" aria-label="次の月">${ICON.next}</button>
       </div>
       <div class="cal-week" aria-hidden="true">${[...WEEKDAYS].map((w) => `<span>${w}</span>`).join('')}</div>
@@ -871,6 +873,7 @@
     'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
+    'cal-today': () => { state.month = monthOf(state.today); state.calDate = state.today; render(); },
     'month': (el) => {
       const n = Number(el.dataset.n);
       if (state.view === 'roster') state.rosterMonth = addMonth(state.rosterMonth, n); else state.month = addMonth(state.month, n);
