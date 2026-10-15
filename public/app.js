@@ -256,13 +256,13 @@
     if (state.busy) setBusy(true);
   }
 
-  // 下のタブ。練習日・パート別・管理（役職と管理者）
+  // 下のタブ。練習日・一覧・管理（役職と管理者）
   const TAB_VIEWS = ['home', 'roster', 'admin'];
   function tabs() {
     if (!state.me) return '';
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
-    items.push(['roster', 'パート別', 'go-roster', ICON.people]);
+    items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}"${state.view === v ? ' aria-current="page"' : ''}>${icon}<span>${l}</span></button>`).join('')}</nav>`;
   }
