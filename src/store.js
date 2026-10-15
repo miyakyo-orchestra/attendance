@@ -274,9 +274,10 @@ const PUBLIC = {
   },
 
   async login(p, c) {
-    const { name, sei, mei } = personName(p);
+    // ログインは氏名を一つの欄で受ける。スペースの有無は問わない（姓と名で送られても受ける）
+    const name = p.name !== undefined ? bare(String(p.name)).slice(0, LIMITS.NAME) : personName(p).name;
     const pin = String(p.pin || '');
-    if (!name || !pin) return fail('姓・名と暗証番号を入れてください。');
+    if (!name || !pin) return fail('氏名と暗証番号を入れてください。');
     // 合言葉は登録のときだけ。ログインは氏名と暗証番号で、同じ接続元からの誤りが続けば止める
     this.checkGate(c.ip);
     const m = this.db.exec(`SELECT * FROM members WHERE ${SAME_NAME}`, bare(name))[0];
