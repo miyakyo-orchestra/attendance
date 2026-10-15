@@ -496,27 +496,6 @@ const PRIVATE = {
     return { ok: true, added: dates.length, days: this.listDays() };
   }],
 
-  /** 種類や時刻の違う練習日を、いくつもまとめて足す（貼り付けたカレンダーから） */
-  importDays: ['officer', function (p) {
-    const items = Array.isArray(p.items) ? p.items : [];
-    if (!items.length) return fail('足す練習日を選んでください。');
-    if (items.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}件までです。`);
-    const rows = [];
-    for (const it of items) {
-      const date = String((it && it.date) || '');
-      if (!isDate(date)) return fail('日付の形が正しくありません。');
-      const f = dayFields(it || {});
-      if (f.error) return fail(`${date}: ${f.error}`);
-      rows.push([date, f]);
-    }
-    this.db.txn(() => {
-      for (const [date, f] of rows) {
-        this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', randomId(9), date, f.kind, f.st, f.en, f.note);
-      }
-    });
-    return { ok: true, added: rows.length, days: this.listDays() };
-  }],
-
   deleteDay: ['officer', function (p) {
     const id = String(p.id || '');
     this.db.txn(() => {

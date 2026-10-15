@@ -284,9 +284,6 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .check { flex: none; width: 32px; height: 44px; display: flex; align-items: center; justify-content: center; margin-left: -8px; }
 .check input { width: 20px; height: 20px; accent-color: var(--ink); margin: 0; }
 .list-row .main { flex: 1; }
-.paste-list { margin: 0 -16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.paste-list .list-row { cursor: pointer; }
-.paste-list .list-row.off .main { opacity: .5; }
 
 /* 下のタブ */
 .app.has-tabs main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
