@@ -14,7 +14,6 @@
   'use strict';
 
   const TOKEN_KEY = 'attendance.token';
-  const USED_KEY = 'attendance.used'; // この端末で一度でもログインしたか（次はログインの画面から出す）
   const WEEKDAYS = '日月火水木金土';
   const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
@@ -34,7 +33,7 @@
   const app = document.getElementById('app');
   const state = {
     view: 'auth',
-    authMode: location.hash === '#admin' ? 'admin' : (usedBefore() ? 'login' : 'register'),
+    authMode: location.hash === '#admin' ? 'admin' : 'login',
     open: true,
     parts: [],
     me: null,
@@ -65,7 +64,6 @@
     adminTab: 'days', // 管理画面のタブ
   };
 
-  function usedBefore() { try { return localStorage.getItem(USED_KEY) === '1'; } catch (e) { return false; } }
 
   // ---------------- サーバーとのやりとり ----------------
   function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
@@ -244,30 +242,35 @@
     const mode = state.authMode;
     let body;
     if (mode === 'admin') {
-      body = `<h1>管理用パスワード</h1>
-        <form data-form="admin-login" class="card pad" style="background:none;padding:0">
-          <label class="field">パスワード<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+      body = `<h1>管理者</h1>
+        <form data-form="admin-login" style="display:flex;flex-direction:column;gap:20px">
+          <label class="field">管理用パスワード<input class="input" type="password" name="password" autocomplete="current-password" required></label>
           <button class="cta" type="submit">ログイン</button>
         </form>
-        <button class="link" data-act="auth-mode" data-mode="login">団員のログイン</button>`;
-    } else {
-      const reg = mode === 'register';
-      body = `<div class="seg" role="group" aria-label="登録かログイン">
-          <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">登録</button>
-          <button type="button" data-act="auth-mode" data-mode="login" aria-pressed="${!reg}">ログイン</button>
-        </div>
-        ${reg && !state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
-        ${!reg && PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button><div class="or" aria-hidden="true">または</div>' : ''}
-        <form data-form="${reg ? 'register' : 'login'}" style="display:flex;flex-direction:column;gap:20px">
-          ${reg ? '<label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>' : ''}
+        <p class="auth-alt"><button class="link" data-act="auth-mode" data-mode="login">団員のログインに戻る</button></p>`;
+    } else if (mode === 'register') {
+      body = `<h1>登録</h1>
+        ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+        <form data-form="register" style="display:flex;flex-direction:column;gap:20px">
+          <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
           <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="name" maxlength="30" required></label>
-          ${reg ? partPicker('') : ''}
-          <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="4〜8桁の数字" required></label>
-          <button class="${!reg && PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${reg ? '登録する' : PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
+          ${partPicker('')}
+          <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
+          <button class="cta" type="submit">登録する</button>
         </form>
-        ${!reg ? '<button class="link" data-act="auth-mode" data-mode="admin">管理者</button>' : ''}`;
+        <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>`;
+    } else {
+      body = `<h1>ログイン</h1>
+        ${PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button><div class="or" aria-hidden="true">または</div>' : ''}
+        <form data-form="login" style="display:flex;flex-direction:column;gap:20px">
+          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="username" maxlength="30" required></label>
+          <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4〜8桁の数字" required></label>
+          <button class="${PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
+        </form>
+        <p class="auth-alt">はじめての方は<button class="link" data-act="auth-mode" data-mode="register">登録</button></p>
+        <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button></p>`;
     }
-    return top() + `<main>${messages()}${body}</main>`;
+    return top() + `<main class="auth">${messages()}${body}</main>`;
   }
 
   // 練習日のリストとカレンダー
@@ -680,7 +683,6 @@
   }
   async function afterLogin(r) {
     setToken(r.token);
-    try { localStorage.setItem(USED_KEY, '1'); } catch (e) { /* 残せない端末では何もしない */ }
     state.me = r.me;
     state.flash = '';
     await loadHome();
@@ -691,7 +693,7 @@
 
   // ---------------- 操作 ----------------
   const ACTIONS = {
-    'auth-mode': (el) => { state.authMode = el.dataset.mode; state.error = ''; render(); },
+    'auth-mode': (el) => { state.authMode = el.dataset.mode; state.error = ''; render(); window.scrollTo(0, 0); },
     'home-view': (el) => { state.homeView = el.dataset.v; state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
     'month': (el) => {
