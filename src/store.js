@@ -211,19 +211,22 @@ const PUBLIC = {
     const name = cleanName(p.name);
     const pin = String(p.pin || '');
     if (!name || !pin) return fail('氏名と暗証番号を入れてください。');
-    await this.checkPassphrase(p.passphrase, c.ip);
+    // 合言葉は登録のときだけ。ログインは氏名と暗証番号で、同じ接続元からの誤りが続けば止める
+    this.checkGate(c.ip);
     const m = this.db.exec('SELECT * FROM members WHERE name = ?', name)[0];
     // 登録がない氏名でも、暗証番号の計算は同じだけ行う（登録の有無を、かかる時間から知られないため）
     const ok = await verifySecret(pin, m ? m.pin : DUMMY_HASH);
     if (!m) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
     if (m.locked_until > this.now()) return fail('暗証番号の誤りが続いたため、しばらくログインできません。10分ほどあけてください。', 'LOCKED');
     if (!ok) {
+      this.gateFailed(c.ip);
       const n = m.failures + 1;
       const lock = n >= LIMITS.PIN_FAILURES;
       this.db.exec('UPDATE members SET failures = ?, locked_until = ? WHERE id = ?', lock ? 0 : n, lock ? this.now() + LIMITS.LOCK_SECONDS * 1000 : 0, m.id);
       return fail('氏名か暗証番号が違います。', 'WRONG_PIN');
     }
     this.db.exec('UPDATE members SET failures = 0, locked_until = 0 WHERE id = ?', m.id);
+    this.kdel('gate:' + c.ip);
     const token = await this.newSession(m.id);
     return { ok: true, token, me: this.meOf({ member: m, role: m.role }) };
   },

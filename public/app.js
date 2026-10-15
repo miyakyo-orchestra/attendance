@@ -160,9 +160,9 @@
           <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">登録</button>
           <button type="button" data-act="auth-mode" data-mode="login" aria-pressed="${!reg}">ログイン</button>
         </div>
-        ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+        ${reg && !state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
         <form data-form="${reg ? 'register' : 'login'}" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
+          ${reg ? '<label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>' : ''}
           <label class="field">氏名<input class="input" name="name" placeholder="宮教 太郎" autocomplete="name" maxlength="30" required></label>
           ${reg ? partPicker('') : ''}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="4〜8桁の数字" required></label>

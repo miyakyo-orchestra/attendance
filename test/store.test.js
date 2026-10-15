@@ -72,7 +72,7 @@ test('登録・ログイン・出欠の入力', async () => {
   assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'attend', reason: '' });
 
   // 別の端末からログイン
-  const login = await t.call('login', { passphrase: 'orchestra', name: '宮教 太郎', pin: '1234' });
+  const login = await t.call('login', { name: '宮教 太郎', pin: '1234' });
   assert.equal(login.ok, true);
   assert.equal(login.me.part, 'Vn');
   // ログアウトすると、その印は使えない
@@ -84,10 +84,10 @@ test('登録・ログイン・出欠の入力', async () => {
 test('暗証番号を5回間違えると10分止まる', async () => {
   const t = await ready();
   await join(t, '佐藤', 'Vc', '2468');
-  for (let i = 0; i < 5; i++) assert.equal((await t.call('login', { passphrase: 'orchestra', name: '佐藤', pin: '0000' })).code, 'WRONG_PIN');
-  assert.equal((await t.call('login', { passphrase: 'orchestra', name: '佐藤', pin: '2468' })).code, 'LOCKED');
+  for (let i = 0; i < 5; i++) assert.equal((await t.call('login', { name: '佐藤', pin: '0000' })).code, 'WRONG_PIN');
+  assert.equal((await t.call('login', { name: '佐藤', pin: '2468' })).code, 'LOCKED');
   t.advance(601 * 1000);
-  assert.equal((await t.call('login', { passphrase: 'orchestra', name: '佐藤', pin: '2468' })).ok, true);
+  assert.equal((await t.call('login', { name: '佐藤', pin: '2468' })).ok, true);
 });
 
 test('欠席理由は本人と役職・管理者にだけ返す', async () => {
@@ -225,7 +225,7 @@ test('管理用パスワードで入った人は、自分を管理者として�
   assert.equal((await t.call('registerSelf', { name: 'もう一人', part: 'Vc', pin: '2468' }, admin.token)).ok, false);
   // 団員の登録・ログインと同じ暗証番号で入り直せる
   assert.equal((await t.call('setPassphrase', { passphrase: 'orchestra' }, admin.token)).ok, true);
-  const again = await t.call('login', { passphrase: 'orchestra', name: '最初の 管理者', pin: '2468' });
+  const again = await t.call('login', { name: '最初の 管理者', pin: '2468' });
   assert.equal(again.ok, true);
   assert.equal(again.me.role, 'admin');
 });
@@ -237,4 +237,14 @@ test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   t.store.init();
   assert.equal(t.store.db.exec('SELECT part FROM members')[0].part, 'Vn');
   assert.equal((await t.call('register', { passphrase: 'orchestra', name: '新しい人', part: 'Vn1', pin: '1234' })).ok, false);
+});
+
+test('ログインに合言葉は要らないが、同じ接続元からの誤りが続けば止まる', async () => {
+  const t = await ready();
+  await join(t, '鈴木', 'Hr', '1357');
+  assert.equal((await t.call('login', { name: '鈴木', pin: '1357' })).ok, true);
+  // 名前を変えながら暗証番号を試し続けても、接続元ごとに止まる
+  for (let i = 0; i < 10; i++) await t.call('login', { name: i % 2 ? '鈴木' : '登録のない人' + i, pin: '0000' }, undefined, '9.9.9.9');
+  assert.equal((await t.call('login', { name: '鈴木', pin: '1357' }, undefined, '9.9.9.9')).code, 'LOCKED');
+  assert.equal((await t.call('login', { name: '鈴木', pin: '1357' }, undefined, '8.8.8.8')).code, 'LOCKED'); // 本人の5回の誤りで本人も止まる
 });
