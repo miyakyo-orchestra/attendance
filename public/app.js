@@ -40,7 +40,8 @@
     parts: [],
     me: null,
     today: '',
-    days: [],
+    days: [], // 出欠をとる練習日
+    events: [], // 練習日と、出欠をとらない予定（授業・祝日など）の全部。カレンダーに出す
     answers: {},
     homeView: 'list',
     month: '',
@@ -55,7 +56,7 @@
     rosterReasons: true,
     rosterOpen: {}, // パート別の一覧で、出席の人の名前を開いているパート
     rosterCal: false,
-    calDate: '', // カレンダーで押した、練習が二つ以上ある日
+    calDate: '', // カレンダーで選んでいる日
     rosterMonth: '',
     admin: null,
     editDay: null,
@@ -364,7 +365,7 @@
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
       </div>
       ${messages()}
-      ${list ? dayList() : calendar(state.month, (ds) => ds.length > 1 ? `data-act="cal-date" data-date="${esc(ds[0].date)}"` : `data-act="open-day" data-id="${esc(ds[0].id)}"`, true) + calDateRows()}
+      ${list ? dayList() : monthView() + agenda()}
     </main>` + tabs();
   }
 
@@ -399,11 +400,68 @@
     }
     return html;
   }
-  /** カレンダーで練習が二つ以上ある日を押したとき、その日の練習を並べる */
-  function calDateRows() {
-    const ds = state.days.filter((d) => d.date === state.calDate);
-    if (ds.length < 2 || monthOf(state.calDate) !== state.month) return '';
-    return `<div class="card">${ds.map((d) => dayRow(d, d.date < state.today)).join('')}</div>`;
+  /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
+  function toneOf(d) {
+    if (d.noentry) return 'plain';
+    if (/合奏/.test(d.kind)) return 'tutti';
+    if (/本番|演奏|リハ|ゲネ|GP|コンサート/i.test(d.kind)) return 'stage';
+    return 'part';
+  }
+  /** カレンダーで最初に選ぶ日。今日がその月なら今日、なければその月の最初の予定の日 */
+  function defaultCalDate(ym) {
+    if (monthOf(state.today) === ym) return state.today;
+    const e = state.events.find((d) => monthOf(d.date) === ym);
+    return e ? e.date : `${ym}-01`;
+  }
+  /** 練習日のカレンダー。iPhone のカレンダーのように、日ごとに予定の名前を色つきで並べる */
+  function monthView() {
+    const ym = state.month;
+    const [y, m] = ym.split('-').map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    if (monthOf(state.calDate) !== ym) state.calDate = defaultCalDate(ym);
+    const byDate = {};
+    for (const d of state.events) if (monthOf(d.date) === ym) (byDate[d.date] = byDate[d.date] || []).push(d);
+    let cells = '';
+    for (let i = 0; i < first; i++) cells += '<div class="mv-cell"></div>';
+    for (let n = 1; n <= count; n++) {
+      const date = `${ym}-${String(n).padStart(2, '0')}`;
+      const ds = byDate[date] || [];
+      const wd = (first + n - 1) % 7;
+      // 予定は三つまで出し、それより多ければ数だけを出す
+      const shown = ds.length > 3 ? ds.slice(0, 2) : ds;
+      const label = `${m}月${n}日 ${ds.map((d) => d.kind || '練習').join('、')}`;
+      cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 ? ' sun' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
+        <span class="mv-num">${n}</span>
+        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${esc(d.kind || '練習')}</span>`).join('')}
+        ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
+      </button>`;
+    }
+    return `<div class="card cal mv">
+      <div class="cal-head">
+        <button class="icon" data-act="month" data-n="-1" aria-label="前の月">${ICON.back}</button>
+        <span class="cal-title">${y}年${m}月</span>
+        <button class="icon" data-act="month" data-n="1" aria-label="次の月">${ICON.next}</button>
+      </div>
+      <div class="cal-week" aria-hidden="true">${[...WEEKDAYS].map((w) => `<span>${w}</span>`).join('')}</div>
+      <div class="mv-grid">${cells}</div>
+    </div>`;
+  }
+  /** カレンダーの下に、選んだ日の予定を時刻の順に並べる。練習を押すと出欠の入力に進む */
+  function agenda() {
+    const date = state.calDate;
+    const ds = state.events.filter((d) => d.date === date);
+    const past = date < state.today;
+    const rows = ds.map((d) => {
+      const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
+      const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
+      if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
+      const st = statusOf(d.id);
+      const pill = isMember() ? `<span class="pill ${st}${!past && st === 'none' ? ' todo' : ''}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : '';
+      return `<button class="ag-row" data-act="open-day" data-id="${esc(d.id)}">${time}${main}${pill}</button>`;
+    }).join('');
+    return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
+      <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
   }
   /** 練習日の1行 */
   function dayRow(d, isPast) {
@@ -596,10 +654,11 @@
   /** 練習日の種類・時刻・メモの欄 */
   function dayFields(v) {
     return `<label class="field full">種類<input class="input" name="kind" list="kinds" value="${esc(v.kind || '')}" maxlength="20"></label>
-      <datalist id="kinds"><option value="合奏"><option value="分奏"><option value="パート練習"><option value="本番"></datalist>
+      <datalist id="kinds">${['合奏', '個人／パート', '分奏', 'リハーサル', '演奏会', '本番', '授業', '休み'].map((k) => `<option value="${k}">`).join('')}</datalist>
       <label class="field">開始<input class="input" type="time" name="st" value="${esc(v.st || '')}"></label>
       <label class="field">終了<input class="input" type="time" name="en" value="${esc(v.en || '')}"></label>
-      <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>`;
+      <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>
+      <label class="switch full"><input type="checkbox" name="noentry"${v.noentry && v.noentry !== '0' ? ' checked' : ''}><span>出欠をとらない</span>${tip('出欠をとらない予定', '授業や祝日など、カレンダーに載せるだけの予定にします。')}</label>`;
   }
 
   /** 練習日をまとめて足すときの、日付を何日でも選べるカレンダー */
@@ -683,7 +742,7 @@
 
       <section class="card">
         <div class="part-head"><h2>練習日</h2><span>${a.days.length}日</span></div>
-        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
+        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
           <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
       </section>`;
   }
@@ -769,7 +828,8 @@
     if (!r.ok) { if (r.code !== 'UNAUTHORIZED') state.error = r.message; return false; }
     state.me = r.me;
     state.today = r.today;
-    state.days = r.days;
+    state.events = r.days;
+    state.days = r.days.filter((d) => !d.noentry);
     state.answers = r.answers;
     state.parts = r.parts;
     if (!state.month) { const n = nextDay(); state.month = n ? monthOf(n.date) : monthOf(r.today); }
@@ -807,7 +867,7 @@
     'auth-mode': (el) => { state.authMode = el.dataset.mode; state.error = ''; render(); window.scrollTo(0, 0); },
     'home-view': (el) => { state.homeView = el.dataset.v; state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
-    'cal-date': (el) => { state.calDate = state.calDate === el.dataset.date ? '' : el.dataset.date; render(); },
+    'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
     'month': (el) => {
       const n = Number(el.dataset.n);
       if (state.view === 'roster') state.rosterMonth = addMonth(state.rosterMonth, n); else state.month = addMonth(state.month, n);
@@ -900,7 +960,7 @@
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d) return;
       state.editDay = null;
-      state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note };
+      state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
       state.picked = [];
       render();
       window.scrollTo(0, 0);

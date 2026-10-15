@@ -221,6 +221,26 @@ test('練習日をまとめて足す', async () => {
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
 });
 
+test('出欠をとらない予定は、カレンダーに出るが出欠は入れられない', async () => {
+  const t = await ready();
+  const r = await t.call('saveDays', { dates: ['2026-10-24', '2026-10-25'], kind: '総合型選抜', noentry: 'on' }, t.adminToken);
+  assert.equal(r.ok, true);
+  const ev = r.days.find((d) => d.date === '2026-10-24');
+  assert.equal(ev.noentry, 1);
+  assert.equal((await t.call('saveDays', { dates: ['2026-10-26'], noentry: 'on' }, t.adminToken)).ok, false); // 種類が空
+  const member = await join(t, '団員', 'Va');
+  const home = await t.call('home', {}, member);
+  assert.ok(home.days.some((d) => d.id === ev.id && d.noentry === 1));
+  assert.equal((await t.call('answer', { dayId: ev.id, status: 'attend' }, member)).code, 'NOT_FOUND');
+  assert.equal((await t.call('roster', { dayId: ev.id }, member)).code, 'NOT_FOUND');
+  const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
+  assert.ok(!csv.includes('総合型選抜'));
+  // 直すときに練習日に戻せる
+  const back = await t.call('saveDay', { id: ev.id, date: ev.date, kind: '合奏', st: '13:00', en: '17:00' }, t.adminToken);
+  assert.equal(back.days.find((d) => d.id === ev.id).noentry, 0);
+  assert.equal((await t.call('answer', { dayId: ev.id, status: 'attend' }, member)).ok, true);
+});
+
 test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   const t = await ready();
   await join(t, '前の人', 'Vn');

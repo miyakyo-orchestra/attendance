@@ -7,6 +7,8 @@
   --amber: #ea7a1e; --amber-ink: #a44e0a; --amber-soft: #fcefe3;
   --grey: #9aa1ac; --on-accent: #ffffff; --danger: #c0352b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  /* 予定の色（出欠の青・橙と混ざらない色）。part は個人・パートなど、tutti は合奏、stage は本番・リハーサルなど */
+  --part: #2f8a4c; --part-soft: #e2f3e7; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #7247c9; --stage-soft: #ece5fb;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -18,6 +20,7 @@
     --amber: #f0a056; --amber-ink: #f3b77c; --amber-soft: #3a2a1b;
     --grey: #767d89; --on-accent: #0f1115; --danger: #f08a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --part: #6fcf8f; --part-soft: #1c3324; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #b49af2; --stage-soft: #2b2342;
     color-scheme: dark;
   }
 }
@@ -322,3 +325,40 @@ main.auth h1 { font-size: 26px; }
 .month-group { display: flex; flex-direction: column; gap: 8px; }
 .month-label { margin: 0; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--sub); }
 .dots { display: flex; gap: 2px; }
+
+/* 練習日のカレンダー（iPhone のカレンダーにならう） */
+.mv { padding: 12px 6px 8px; }
+.mv .cal-head { padding: 0 6px; }
+.mv-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.mv-cell {
+  min-height: 72px; padding: 4px 2px 6px; border: none; border-bottom: 1px solid var(--line); background: none; color: var(--ink);
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: center; min-width: 0;
+}
+.mv-cell:empty { border-bottom: 1px solid var(--line); }
+.mv-num { align-self: center; width: 26px; height: 26px; line-height: 26px; border-radius: 50%; font-size: 14px; }
+.mv-cell.sun .mv-num { color: var(--sub); }
+.mv-cell.today .mv-num { color: var(--danger); font-weight: 700; }
+.mv-cell[aria-pressed="true"] .mv-num { background: var(--ink); color: var(--on-ink); font-weight: 700; }
+.mv-cell.today[aria-pressed="true"] .mv-num { background: var(--danger); color: var(--on-accent); }
+.mv-ev { font-size: 10px; line-height: 15px; border-radius: 3px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; font-weight: 500; }
+.mv-ev.part { background: var(--part-soft); color: var(--part); }
+.mv-ev.tutti { background: var(--tutti-soft); color: var(--tutti); }
+.mv-ev.stage { background: var(--stage-soft); color: var(--stage); }
+.mv-ev.plain { color: var(--sub); font-weight: 400; }
+.mv-cell.past .mv-ev { opacity: .55; }
+.mv-more { font-size: 10px; line-height: 14px; color: var(--sub); }
+.agenda { display: flex; flex-direction: column; }
+.ag-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; min-height: 60px; border: none; background: none; color: var(--ink); text-align: left; }
+.ag-row + .ag-row { border-top: 1px solid var(--line); }
+.ag-time { flex: none; width: 44px; display: flex; flex-direction: column; font-size: 13px; line-height: 1.35; }
+.ag-time b { font-weight: 500; }
+.ag-time span { color: var(--sub); }
+.ag-bar { flex: none; align-self: stretch; width: 4px; border-radius: 2px; background: var(--grey); }
+.ag-bar.part { background: var(--part); }
+.ag-bar.tutti { background: var(--tutti); }
+.ag-bar.stage { background: var(--stage); }
+.ag-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ag-title { font-size: 15px; font-weight: 700; }
+.ag-row .meta { font-size: 13px; color: var(--sub); }
+.switch { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
+.switch input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
