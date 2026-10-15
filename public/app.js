@@ -14,6 +14,8 @@
   'use strict';
 
   const TOKEN_KEY = 'attendance.token';
+  const VIEW_KEY = 'attendance.homeView'; // 練習日をリストとカレンダーのどちらで見るか（端末ごとに覚える）
+  function savedView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'; } catch (e) { return 'calendar'; } }
   const WEEKDAYS = '日月火水木金土';
   const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
@@ -43,7 +45,7 @@
     days: [], // 出欠をとる練習日
     events: [], // 練習日と、出欠をとらない予定（授業・祝日など）の全部。カレンダーに出す
     answers: {},
-    homeView: 'list',
+    homeView: savedView(),
     month: '',
     showPast: false,
     flash: '',
@@ -361,8 +363,8 @@
     const list = state.homeView === 'list';
     return top(whoMenu()) + `<main>
       <div class="seg" role="group" aria-label="表示">
-        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
+        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
       </div>
       ${messages()}
       ${list ? dayList() : monthView() + agenda()}
@@ -423,28 +425,31 @@
     const byDate = {};
     for (const d of state.events) if (monthOf(d.date) === ym) (byDate[d.date] = byDate[d.date] || []).push(d);
     let cells = '';
-    for (let i = 0; i < first; i++) cells += '<div class="mv-cell"></div>';
+    for (let i = 0; i < first; i++) cells += '<div class="mv-cell blank"></div>';
     for (let n = 1; n <= count; n++) {
       const date = `${ym}-${String(n).padStart(2, '0')}`;
       const ds = byDate[date] || [];
       const wd = (first + n - 1) % 7;
       // 予定は三つまで出し、それより多ければ数だけを出す
       const shown = ds.length > 3 ? ds.slice(0, 2) : ds;
-      const label = `${m}月${n}日 ${ds.map((d) => d.kind || '練習').join('、')}`;
-      cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 ? ' sun' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
+      const label = `${m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (!d.noentry && isMember() ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
+      cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
-        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${esc(d.kind || '練習')}</span>`).join('')}
+        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${!d.noentry && isMember() ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
-    return `<div class="card cal mv">
-      <div class="cal-head">
+    const away = state.calDate !== state.today;
+    return `<div class="mv">
+      <div class="mv-head">
+        <h2 class="mv-title"><small>${y}年</small>${m}月</h2>
+        ${away ? '<button class="mv-today" data-act="cal-today">今日</button>' : ''}
         <button class="icon" data-act="month" data-n="-1" aria-label="前の月">${ICON.back}</button>
-        <span class="cal-title">${y}年${m}月</span>
         <button class="icon" data-act="month" data-n="1" aria-label="次の月">${ICON.next}</button>
       </div>
       <div class="cal-week" aria-hidden="true">${[...WEEKDAYS].map((w) => `<span>${w}</span>`).join('')}</div>
       <div class="mv-grid">${cells}</div>
+      ${isMember() ? `<div class="legend"><span><span class="dot attend"></span>出席</span><span><span class="dot late"></span>遅刻・早退</span><span><span class="dot absent"></span>欠席</span><span><span class="dot"></span>未回答</span></div>` : ''}
     </div>`;
   }
   /** カレンダーの下に、選んだ日の予定を時刻の順に並べる。練習を押すと出欠の入力に進む */
@@ -469,7 +474,7 @@
     // これからの日でまだ答えていないものは、枠つきの札で目立たせる
     const todo = !isPast && st === 'none' ? ' todo' : '';
     return `<button class="day${isPast ? ' past' : ''}" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
+      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
       ${isMember() ? `<span class="pill ${st}${todo}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : ''}
     </button>`;
   }
@@ -865,9 +870,10 @@
   // ---------------- 操作 ----------------
   const ACTIONS = {
     'auth-mode': (el) => { state.authMode = el.dataset.mode; state.error = ''; render(); window.scrollTo(0, 0); },
-    'home-view': (el) => { state.homeView = el.dataset.v; state.flash = ''; render(); },
+    'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
+    'cal-today': () => { state.month = monthOf(state.today); state.calDate = state.today; render(); },
     'month': (el) => {
       const n = Number(el.dataset.n);
       if (state.view === 'roster') state.rosterMonth = addMonth(state.rosterMonth, n); else state.month = addMonth(state.month, n);

@@ -124,7 +124,9 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
   background: none; border: none; text-align: left;
 }
 .day + .day { border-top: 1px solid var(--line); }
-.day .main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.day .main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.day .ag-bar { margin-right: -2px; }
+.day.past .ag-bar { opacity: .5; }
 .day .date { font-size: 16px; font-weight: 700; }
 .day .meta { font-size: 13px; color: var(--sub); }
 .day.past .date { color: var(--sub); }
@@ -327,25 +329,31 @@ main.auth h1 { font-size: 26px; }
 .dots { display: flex; gap: 2px; }
 
 /* 練習日のカレンダー（iPhone のカレンダーにならう） */
-.mv { padding: 12px 6px 8px; }
-.mv .cal-head { padding: 0 6px; }
-.mv-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.mv { margin: 0 -12px; display: flex; flex-direction: column; }
+.mv-head { display: flex; align-items: center; gap: 2px; padding: 0 4px 8px 12px; }
+.mv-title { margin: 0 auto 0 0; font-size: 30px; font-weight: 700; line-height: 1.1; display: flex; flex-direction: column; }
+.mv-title small { font-size: 13px; font-weight: 500; color: var(--sub); }
+.mv-today { min-height: 34px; padding: 0 14px; border-radius: 999px; border: none; background: var(--surface); box-shadow: var(--shadow); font-size: 14px; font-weight: 500; color: var(--ink); margin-right: 4px; }
+.mv .cal-week { padding-bottom: 6px; }
+.mv-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .mv-cell {
-  min-height: 72px; padding: 4px 2px 6px; border: none; border-bottom: 1px solid var(--line); background: none; color: var(--ink);
-  display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: center; min-width: 0;
+  min-height: 84px; padding: 4px 1px 6px; border: none; border-top: 1px solid var(--line); background: none; color: var(--ink);
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: center; min-width: 0;
 }
-.mv-cell:empty { border-bottom: 1px solid var(--line); }
-.mv-num { align-self: center; width: 26px; height: 26px; line-height: 26px; border-radius: 50%; font-size: 14px; }
-.mv-cell.sun .mv-num { color: var(--sub); }
-.mv-cell.today .mv-num { color: var(--danger); font-weight: 700; }
-.mv-cell[aria-pressed="true"] .mv-num { background: var(--ink); color: var(--on-ink); font-weight: 700; }
-.mv-cell.today[aria-pressed="true"] .mv-num { background: var(--danger); color: var(--on-accent); }
-.mv-ev { font-size: 10px; line-height: 15px; border-radius: 3px; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; font-weight: 500; }
+.mv-cell.blank { border-top-color: transparent; }
+.mv-num { align-self: center; width: 30px; height: 30px; line-height: 30px; border-radius: 50%; font-size: 17px; font-weight: 500; }
+.mv-cell.holiday .mv-num { color: var(--sub); }
+.mv-cell[aria-pressed="true"] .mv-num { background: var(--muted); color: var(--ink); font-weight: 700; }
+.mv-cell.today .mv-num { background: var(--danger); color: var(--on-accent); font-weight: 700; }
+.mv-ev { display: flex; align-items: center; gap: 3px; height: 18px; font-size: 11px; border-radius: 5px; padding: 0 3px; white-space: nowrap; overflow: hidden; font-weight: 500; text-align: left; }
+.mv-ev .dot { flex: none; width: 8px; height: 8px; }
+.mv-name { overflow: hidden; min-width: 0; -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
 .mv-ev.part { background: var(--part-soft); color: var(--part); }
 .mv-ev.tutti { background: var(--tutti-soft); color: var(--tutti); }
 .mv-ev.stage { background: var(--stage-soft); color: var(--stage); }
-.mv-ev.plain { color: var(--sub); font-weight: 400; }
-.mv-cell.past .mv-ev { opacity: .55; }
+.mv-ev.plain { background: var(--muted); color: var(--sub); font-weight: 400; }
+.mv-cell.past .mv-ev { opacity: .5; }
+.mv .legend { padding: 10px 0 4px; border-top: 1px solid var(--line); }
 .mv-more { font-size: 10px; line-height: 14px; color: var(--sub); }
 .agenda { display: flex; flex-direction: column; }
 .ag-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; min-height: 60px; border: none; background: none; color: var(--ink); text-align: left; }
