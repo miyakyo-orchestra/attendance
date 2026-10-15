@@ -257,17 +257,36 @@
       if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
     if (state.busy) setBusy(true);
+    syncHistory();
   }
 
+  // 出欠の入力と設定の画面を開いたら、ブラウザの履歴を一つ積む。
+  // iPhone で画面の左端から右へなぞる「戻る」や、Android の戻るボタンで練習日に戻れるようにするため
+  const SUB_VIEWS = ['entry', 'profile'];
+  let subPushed = false;
+  let ignorePop = false;
+  function syncHistory() {
+    const sub = SUB_VIEWS.includes(state.view);
+    if (sub && !subPushed) { history.pushState({ sub: 1 }, ''); subPushed = true; }
+    if (!sub && subPushed) { subPushed = false; ignorePop = true; history.back(); }
+  }
+  window.addEventListener('popstate', () => {
+    if (ignorePop) { ignorePop = false; return; }
+    if (!subPushed) return;
+    subPushed = false;
+    state.view = isMember() ? 'home' : 'admin'; state.error = ''; state.flash = '';
+    render(); window.scrollTo(0, 0);
+  });
+
   // 下のタブ。練習日・一覧・管理（役職と管理者）
-  const TAB_VIEWS = ['home', 'roster', 'admin'];
+  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile'];
   function tabs() {
     if (!state.me) return '';
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${state.view === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
+    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${(state.view === 'entry' ? 'home' : state.view) === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
 
   function top(right) {
@@ -463,7 +482,7 @@
         </div>
         ${past ? '' : `<button class="cta" type="submit"${a.status && a.status !== 'attend' ? '' : ' hidden'}>送信する</button>`}
       </form>
-    </main>`;
+    </main>` + tabs();
   }
 
   // パート別の出欠。出席の人は人数だけにまとめ、押すと名前が出る
@@ -555,7 +574,7 @@
           <div class="actions"><button class="ghost icon danger" data-act="passkey-delete" data-id="${esc(k.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
       </section>` : ''}
-    </main>`;
+    </main>` + tabs();
   }
 
   // パスキーの説明（i ボタンで開く）
