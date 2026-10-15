@@ -52,6 +52,7 @@
     rosterReasons: true,
     rosterOpen: {}, // パート別の一覧で、出席の人の名前を開いているパート
     rosterCal: false,
+    calDate: '', // カレンダーで押した、練習が二つ以上ある日
     rosterMonth: '',
     admin: null,
     editDay: null,
@@ -226,10 +227,10 @@
     return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   function parseDate(d) { const [y, m, dd] = d.split('-').map(Number); return { y, m, d: dd, wd: new Date(Date.UTC(y, m - 1, dd)).getUTCDay() }; }
-  function dateLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}`; }
-  function longLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日 ${WEEKDAYS[p.wd]}曜日`; }
-  function shortLabel(d) { const p = parseDate(d); return `${p.m}月${p.d}日`; }
-  function timeLabel(day) { return day.st && day.en ? `${day.st}から${day.en}` : day.st ? `${day.st}から` : ''; }
+  function dateLabel(d) { const p = parseDate(d); return `${p.m}/${p.d}(${WEEKDAYS[p.wd]})`; }
+  function longLabel(d) { return dateLabel(d); }
+  function shortLabel(d) { return dateLabel(d); }
+  function timeLabel(day) { return day.st && day.en ? `${day.st}〜${day.en}` : day.st ? `${day.st}〜` : ''; }
   function metaLabel(day) { return [day.kind, timeLabel(day)].filter(Boolean).join(' '); }
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   function monthOf(d) { return d.slice(0, 7); }
@@ -263,7 +264,7 @@
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}"${state.view === v ? ' aria-current="page"' : ''}>${icon}<span>${l}</span></button>`).join('')}</nav>`;
+    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${state.view === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
 
   function top(right) {
@@ -280,6 +281,11 @@
   function messages() {
     return (state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '')
       + (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '');
+  }
+  /** 姓と名の欄（姓と名はスペースなしでつないで氏名にする） */
+  function nameFields(me) {
+    const v = (k) => (me ? ` value="${esc(me[k] || '')}"` : '');
+    return `<div class="row"><label class="field">姓<input class="input" name="sei" placeholder="宮教"${v('sei')} autocomplete="family-name" maxlength="15" required></label><label class="field">名<input class="input" name="mei" placeholder="太郎"${v('mei')} autocomplete="given-name" maxlength="15" required></label></div>`;
   }
   function partPicker(selected) {
     const chip = (p) => `<label class="chip"><input type="radio" name="part" value="${esc(p.id)}"${p.id === selected ? ' checked' : ''}><span>${esc(p.id)}</span></label>`;
@@ -305,7 +311,7 @@
         ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
         <form data-form="register" style="display:flex;flex-direction:column;gap:20px">
           <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
-          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="name" maxlength="30" required></label>
+          ${nameFields()}
           ${partPicker('')}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
           <button class="cta" type="submit">登録する</button>
@@ -314,7 +320,7 @@
     } else {
       body = `<h1>ログイン</h1>
         <form data-form="login" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">氏名<input class="input" name="name" placeholder="宮教太郎" autocomplete="username" maxlength="30" required></label>
+          ${nameFields()}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4〜8桁の数字" required></label>
           <button class="${PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
@@ -336,35 +342,27 @@
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
       </div>
       ${messages()}
-      ${list ? dayList() : calendar(state.month, (d) => d ? `data-act="open-day" data-id="${esc(d.id)}"` : '', true)}
+      ${list ? dayList() : calendar(state.month, (ds) => ds.length > 1 ? `data-act="cal-date" data-date="${esc(ds[0].date)}"` : `data-act="open-day" data-id="${esc(ds[0].id)}"`, true) + calDateRows()}
     </main>` + tabs();
   }
 
   function dayList() {
     const upcoming = state.days.filter((d) => d.date >= state.today);
     const past = state.days.filter((d) => d.date < state.today).reverse();
-    const row = (d, isPast) => {
-      const st = statusOf(d.id);
-      // これからの日でまだ答えていないものは、枠つきの札で目立たせる
-      const todo = !isPast && st === 'none' ? ' todo' : '';
-      return `<button class="day${isPast ? ' past' : ''}" data-act="open-day" data-id="${esc(d.id)}">
-        <span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
-        ${isMember() ? `<span class="pill ${st}${todo}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : ''}
-      </button>`;
-    };
     let html = '';
     if (!upcoming.length) html = '<div class="empty">予定の練習日はありません</div>';
     else {
-      // 次の練習は一つだけ大きく出し、その先は月ごとに区切る
-      const [next, ...rest] = upcoming;
-      html = `<div class="card next-day"><span class="next-label">次の練習</span>${row(next, false)}</div>`;
+      // 次の練習（同じ日に二つあれば両方）を大きく出し、その先は月ごとに区切る
+      const next = upcoming.filter((d) => d.date === upcoming[0].date);
+      const rest = upcoming.slice(next.length);
+      html = `<div class="card next-day"><span class="next-label">次の練習</span>${next.map((d) => dayRow(d, false)).join('')}</div>`;
       const year = parseDate(state.today).y;
       let cur = '';
       let group = [];
       const flush = () => {
         if (!group.length) return;
         const [y, m] = cur.split('-').map(Number);
-        html += `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2><div class="card">${group.map((d) => row(d, false)).join('')}</div></div>`;
+        html += `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2><div class="card">${group.map((d) => dayRow(d, false)).join('')}</div></div>`;
         group = [];
       };
       for (const d of rest) {
@@ -375,29 +373,46 @@
     }
     if (past.length) {
       html += `<button class="link" data-act="toggle-past" aria-expanded="${state.showPast}" style="align-self:center">過去の練習日</button>`;
-      if (state.showPast) html += `<div class="card">${past.map((d) => row(d, true)).join('')}</div>`;
+      if (state.showPast) html += `<div class="card">${past.map((d) => dayRow(d, true)).join('')}</div>`;
     }
     return html;
   }
+  /** カレンダーで練習が二つ以上ある日を押したとき、その日の練習を並べる */
+  function calDateRows() {
+    const ds = state.days.filter((d) => d.date === state.calDate);
+    if (ds.length < 2 || monthOf(state.calDate) !== state.month) return '';
+    return `<div class="card">${ds.map((d) => dayRow(d, d.date < state.today)).join('')}</div>`;
+  }
+  /** 練習日の1行 */
+  function dayRow(d, isPast) {
+    const st = statusOf(d.id);
+    // これからの日でまだ答えていないものは、枠つきの札で目立たせる
+    const todo = !isPast && st === 'none' ? ' todo' : '';
+    return `<button class="day${isPast ? ' past' : ''}" data-act="open-day" data-id="${esc(d.id)}">
+      <span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
+      ${isMember() ? `<span class="pill ${st}${todo}">${esc(statusText(state.answers[d.id] || { status: 'none' }))}</span>` : ''}
+    </button>`;
+  }
 
-  /** 月のカレンダー。attrs(練習日) が押したときの data-〜 を返す */
+  /** 月のカレンダー。attrs(その日の練習日の配列) が押したときの data-〜 を返す */
   function calendar(ym, attrs, withLegend, selectedId) {
     const [y, m] = ym.split('-').map(Number);
     const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
     const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const byDate = {};
-    for (const d of state.days) if (monthOf(d.date) === ym && !byDate[d.date]) byDate[d.date] = d;
+    for (const d of state.days) if (monthOf(d.date) === ym) (byDate[d.date] = byDate[d.date] || []).push(d);
     let cells = '';
     for (let i = 0; i < first; i++) cells += '<div class="cal-cell"></div>';
     for (let n = 1; n <= count; n++) {
       const date = `${ym}-${String(n).padStart(2, '0')}`;
-      const d = byDate[date];
+      const ds = byDate[date];
       const today = date === state.today;
-      if (d) {
-        const st = statusOf(d.id);
-        const label = `${m}月${n}日${isMember() ? ' ' + STATUS_LABEL[st] : ''}`;
-        cells += `<div class="cal-cell"><button class="cal-day${today ? ' today' : ''}" ${attrs(d)} aria-label="${esc(label)}"${selectedId ? ` aria-pressed="${d.id === selectedId}"` : ''}>
-          <span>${n}</span>${isMember() ? `<span class="dot ${st}"></span>` : ''}</button></div>`;
+      if (ds) {
+        // 同じ日に練習が二つ以上あれば、点もその数だけ並べる
+        const label = `${m}月${n}日${ds.length > 1 ? ` 練習${ds.length}つ` : ''}${isMember() ? ' ' + ds.map((d) => STATUS_LABEL[statusOf(d.id)]).join('・') : ''}`;
+        const pressed = selectedId ? ds.some((d) => d.id === selectedId) : state.calDate === date;
+        cells += `<div class="cal-cell"><button class="cal-day${today ? ' today' : ''}" ${attrs(ds)} aria-label="${esc(label)}"${selectedId || ds.length > 1 ? ` aria-pressed="${pressed}"` : ''}>
+          <span>${n}</span>${isMember() ? `<span class="dots">${ds.map((d) => `<span class="dot ${statusOf(d.id)}"></span>`).join('')}</span>` : ''}</button></div>`;
       } else {
         cells += `<div class="cal-cell"><span class="cal-num${today ? ' today' : ''}">${n}</span></div>`;
       }
@@ -452,9 +467,13 @@
   function viewRoster() {
     if (!state.days.length) return top(whoMenu()) + '<main><div class="empty">練習日はまだありません</div></main>' + tabs();
     const r = state.roster;
+    const count = {};
+    state.days.forEach((d) => { count[d.date] = (count[d.date] || 0) + 1; });
     const chips = state.days.map((d) => {
       const p = parseDate(d.date);
-      return `<button class="day-chip" data-act="roster-day" data-id="${esc(d.id)}" aria-pressed="${d.id === state.rosterDay}" aria-label="${esc(dateLabel(d.date))}"><small>${p.m}/${WEEKDAYS[p.wd]}</small><b>${p.d}</b></button>`;
+      // 同じ日に二つ以上あるときは、月と曜日の代わりに開始の時刻（なければ種類）を出して見分ける
+      const small = count[d.date] > 1 ? (d.st || d.kind || `${p.m}/${WEEKDAYS[p.wd]}`) : `${p.m}/${WEEKDAYS[p.wd]}`;
+      return `<button class="day-chip" data-act="roster-day" data-id="${esc(d.id)}" aria-pressed="${d.id === state.rosterDay}" aria-label="${esc(dateLabel(d.date) + ' ' + metaLabel(d))}"><small>${esc(small)}</small><b>${p.d}</b></button>`;
     }).join('');
     let body = '';
     if (r && r.day.id === state.rosterDay) {
@@ -505,7 +524,11 @@
         <div class="day-chips" role="group" aria-label="練習日">${chips}</div>
         <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選ぶ">${ICON.cal}</button>
       </div>
-      ${state.rosterCal ? calendar(state.rosterMonth, (d) => `data-act="roster-day" data-id="${esc(d.id)}"`, false, state.rosterDay) : ''}
+      ${state.rosterCal ? calendar(state.rosterMonth, (ds) => {
+        // 同じ日に二つあるときは、押すたびに次の練習に移る
+        const i = ds.findIndex((d) => d.id === state.rosterDay);
+        return `data-act="roster-day" data-id="${esc(ds[(i + 1) % ds.length].id)}"`;
+      }, false, state.rosterDay) : ''}
       ${body}
     </main>` + tabs();
   }
@@ -518,7 +541,7 @@
       ${messages()}
       <section class="card pad">
         <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
+          ${nameFields(state.me)}
           ${partPicker(state.me.part)}
           <button class="cta" type="submit">保存</button>
         </form>
@@ -763,6 +786,7 @@
     'auth-mode': (el) => { state.authMode = el.dataset.mode; state.error = ''; render(); window.scrollTo(0, 0); },
     'home-view': (el) => { state.homeView = el.dataset.v; state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
+    'cal-date': (el) => { state.calDate = state.calDate === el.dataset.date ? '' : el.dataset.date; render(); },
     'month': (el) => {
       const n = Number(el.dataset.n);
       if (state.view === 'roster') state.rosterMonth = addMonth(state.rosterMonth, n); else state.month = addMonth(state.month, n);
