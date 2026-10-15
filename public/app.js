@@ -14,6 +14,7 @@
   'use strict';
 
   const TOKEN_KEY = 'attendance.token';
+  const USED_KEY = 'attendance.used'; // この端末で一度でもログインしたか（次はログインの画面から出す）
   const WEEKDAYS = '日月火水木金土';
   const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', absent: '欠席', none: '未回答' };
@@ -27,7 +28,7 @@
   const app = document.getElementById('app');
   const state = {
     view: 'auth',
-    authMode: location.hash === '#admin' ? 'admin' : 'register',
+    authMode: location.hash === '#admin' ? 'admin' : (usedBefore() ? 'login' : 'register'),
     open: true,
     parts: [],
     me: null,
@@ -49,7 +50,13 @@
     rosterMonth: '',
     admin: null,
     editDay: null,
+    pickMonth: '', // 練習日をまとめて足すカレンダーの月
+    picked: [], // 選んだ日付
+    draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
+    passkeys: null, // 自分のパスキーの一覧（設定の画面）
   };
+
+  function usedBefore() { try { return localStorage.getItem(USED_KEY) === '1'; } catch (e) { return false; } }
 
   // ---------------- サーバーとのやりとり ----------------
   function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
@@ -86,6 +93,64 @@
   }
   function setBusy(on) { app.querySelectorAll('button, input, select, textarea').forEach((el) => { if (on) el.dataset.wasDisabled = el.disabled ? '1' : ''; el.disabled = on || el.dataset.wasDisabled === '1'; }); }
 
+  // ---------------- パスキー ----------------
+  const PASSKEY = !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+  function fromB64(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  }
+  function toB64(buf) {
+    let s = '';
+    for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  /** パスキーを作って登録する。やめたときは false */
+  async function createPasskey() {
+    const o = await api('passkeyRegisterOptions');
+    if (!o.ok) { state.error = o.message; return false; }
+    let cred;
+    try {
+      cred = await navigator.credentials.create({ publicKey: {
+        challenge: fromB64(o.challenge),
+        rp: o.rp,
+        user: { id: new TextEncoder().encode(o.user.id), name: o.user.name, displayName: o.user.displayName },
+        pubKeyCredParams: o.algs.map((alg) => ({ type: 'public-key', alg })),
+        authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+        excludeCredentials: o.exclude.map((id) => ({ type: 'public-key', id: fromB64(id) })),
+        attestation: 'none',
+        timeout: 120000,
+      } });
+    } catch (e) {
+      if (e && e.name === 'InvalidStateError') state.error = 'この端末のパスキーはすでに登録しています。';
+      else if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーを作れませんでした。';
+      return false;
+    }
+    const r = await api('passkeyRegister', { clientDataJSON: toB64(cred.response.clientDataJSON), attestationObject: toB64(cred.response.attestationObject) });
+    if (!r.ok) { state.error = r.message; return false; }
+    state.passkeys = r.passkeys;
+    return true;
+  }
+  async function passkeyLogin() {
+    const o = await api('passkeyLoginOptions');
+    if (!o.ok) { state.error = o.message; return; }
+    let cred;
+    try {
+      cred = await navigator.credentials.get({ publicKey: { challenge: fromB64(o.challenge), rpId: o.rpId, userVerification: 'required', timeout: 120000 } });
+    } catch (e) {
+      if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーでログインできませんでした。';
+      return;
+    }
+    const r = await api('passkeyLogin', {
+      id: cred.id,
+      clientDataJSON: toB64(cred.response.clientDataJSON),
+      authenticatorData: toB64(cred.response.authenticatorData),
+      signature: toB64(cred.response.signature),
+    });
+    if (!r.ok) { state.error = r.message; return; }
+    await afterLogin(r);
+  }
+
   // ---------------- 小さな道具 ----------------
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -107,7 +172,7 @@
   // ---------------- 画面の組み立て ----------------
   function render() {
     app.classList.toggle('wide', state.view === 'admin');
-    const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin };
+    const views = { auth: viewAuth, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, offer: viewOffer };
     app.innerHTML = (views[state.view] || viewAuth)();
     if (state.view === 'roster') {
       const on = app.querySelector('.day-chip[aria-pressed="true"]');
@@ -123,7 +188,7 @@
     if (!state.me) return '';
     const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
     return `<details class="who"><summary>${label}</summary><div class="menu">
-      ${isMember() ? '<button data-act="go-profile">氏名とパート</button>' : ''}
+      ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
       ${isAdmin() ? '<button data-act="go-admin">管理</button>' : ''}
       <button data-act="logout">ログアウト</button>
     </div></details>`;
@@ -154,16 +219,17 @@
     } else {
       const reg = mode === 'register';
       body = `<div class="seg" role="group" aria-label="登録かログイン">
-          <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">はじめて</button>
+          <button type="button" data-act="auth-mode" data-mode="register" aria-pressed="${reg}">登録</button>
           <button type="button" data-act="auth-mode" data-mode="login" aria-pressed="${!reg}">ログイン</button>
         </div>
-        ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+        ${reg && !state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+        ${!reg && PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button><div class="or" aria-hidden="true">または</div>' : ''}
         <form data-form="${reg ? 'register' : 'login'}" style="display:flex;flex-direction:column;gap:20px">
-          <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
+          ${reg ? '<label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>' : ''}
           <label class="field">氏名<input class="input" name="name" placeholder="宮教 太郎" autocomplete="name" maxlength="30" required></label>
           ${reg ? partPicker('') : ''}
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="4〜8桁の数字" required></label>
-          <button class="cta" type="submit">${reg ? '登録する' : 'ログイン'}</button>
+          <button class="${!reg && PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${reg ? '登録する' : PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
         ${!reg ? '<button class="link" data-act="auth-mode" data-mode="admin">管理者</button>' : ''}`;
     }
@@ -329,19 +395,84 @@
 
   // 自分の氏名とパート
   function viewProfile() {
+    const keys = state.passkeys;
     return top(whoMenu()) + `<main>
       <button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button>
-      <h1>氏名とパート</h1>
+      <h1>設定</h1>
       ${messages()}
-      <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
-        <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
-        ${partPicker(state.me.part)}
-        <button class="cta" type="submit">保存</button>
-      </form>
+      <section class="card pad">
+        <form data-form="profile" style="display:flex;flex-direction:column;gap:20px">
+          <label class="field">氏名<input class="input" name="name" value="${esc(state.me.name)}" autocomplete="name" maxlength="30" required></label>
+          ${partPicker(state.me.part)}
+          <button class="cta" type="submit">保存</button>
+        </form>
+      </section>
+      ${PASSKEY ? `<section class="card">
+        <div class="part-head"><h2>パスキー</h2><span>${keys ? keys.length + '個' : ''}</span></div>
+        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(shortLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(shortLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
+          <div class="actions"><button class="ghost danger" data-act="passkey-delete" data-id="${esc(k.id)}">消す</button></div></div>`).join('') : ''}
+        <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
+      </section>` : ''}
+    </main>`;
+  }
+
+  // 登録やログインのすぐあとに、パスキーを作るよう勧める
+  function viewOffer() {
+    return top(whoMenu()) + `<main class="offer">
+      <h1>パスキーを作りますか</h1>
+      ${messages()}
+      <button class="cta" data-act="passkey-create">作る</button>
+      <button class="link" data-act="go-home">あとで</button>
     </main>`;
   }
 
   // 管理
+  /** 練習日の種類・時刻・メモの欄 */
+  function dayFields(v) {
+    return `<label class="field full">種類<input class="input" name="kind" list="kinds" value="${esc(v.kind || '')}" maxlength="20"></label>
+      <datalist id="kinds"><option value="合奏"><option value="分奏"><option value="パート練習"><option value="本番"></datalist>
+      <label class="field">開始<input class="input" type="time" name="st" value="${esc(v.st || '')}"></label>
+      <label class="field">終了<input class="input" type="time" name="en" value="${esc(v.en || '')}"></label>
+      <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>`;
+  }
+
+  /** 練習日をまとめて足すときの、日付を何日でも選べるカレンダー */
+  function pickCalendar() {
+    const ym = state.pickMonth;
+    const [y, m] = ym.split('-').map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const has = new Set(state.admin.days.map((d) => d.date));
+    let cells = '';
+    for (let i = 0; i < first; i++) cells += '<div class="cal-cell"></div>';
+    for (let n = 1; n <= count; n++) {
+      const date = `${ym}-${String(n).padStart(2, '0')}`;
+      const on = state.picked.includes(date);
+      const label = `${m}月${n}日${has.has(date) ? ' 練習日あり' : ''}`;
+      cells += `<div class="cal-cell"><button type="button" class="pick-day${date === state.today ? ' today' : ''}${date < state.today ? ' past' : ''}" data-act="pick-day" data-date="${date}" aria-pressed="${on}" aria-label="${esc(label)}">
+        <span>${n}</span><span class="dot${has.has(date) ? ' set' : ' none'}"></span></button></div>`;
+    }
+    return `<div class="cal pick">
+      <div class="cal-head">
+        <button class="icon" data-act="pick-month" data-n="-1" aria-label="前の月">${ICON.back}</button>
+        <span class="cal-title">${y}年${m}月</span>
+        <button class="icon" data-act="pick-month" data-n="1" aria-label="次の月">${ICON.next}</button>
+      </div>
+      <div class="cal-week">${[...WEEKDAYS].map((w, i) => `<button type="button" class="pick-wd" data-act="pick-weekday" data-wd="${i}" aria-label="${y}年${m}月の${w}曜日をまとめて選ぶ">${w}</button>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+    </div>`;
+  }
+  /** 種類・時刻・メモの入れかけを、描き直しても消えないよう取っておく */
+  function keepDraft() {
+    const f = app.querySelector('form[data-form="days"]');
+    if (f) state.draft = Object.fromEntries(new FormData(f));
+  }
+  function togglePicked(dates, on) {
+    const set = new Set(state.picked);
+    for (const d of dates) { if (on) set.add(d); else set.delete(d); }
+    state.picked = [...set].sort();
+  }
+
   function viewAdmin() {
     const a = state.admin;
     if (!a) return top(whoMenu()) + '<main><div class="empty">読み込み中</div></main>';
@@ -352,23 +483,40 @@
       <h1>管理</h1>
       ${messages()}
 
-      <section class="card pad">
-        <div class="section-title"><h2>${e.id ? '練習日を直す' : '練習日を足す'}</h2>${e.id ? '<button class="link" data-act="cancel-edit">やめる</button>' : ''}</div>
-        <form data-form="day" class="form-grid">
-          <label class="field">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
-          <label class="field">種類<input class="input" name="kind" list="kinds" value="${esc(e.kind || '')}" maxlength="20"></label>
-          <datalist id="kinds"><option value="合奏"><option value="分奏"><option value="パート練習"><option value="本番"></datalist>
-          <label class="field">開始<input class="input" type="time" name="st" value="${esc(e.st || '')}"></label>
-          <label class="field">終了<input class="input" type="time" name="en" value="${esc(e.en || '')}"></label>
-          <label class="field full">メモ<input class="input" name="note" value="${esc(e.note || '')}" maxlength="100"></label>
-          <button class="cta full" type="submit">${e.id ? '保存' : '足す'}</button>
+      ${isMember() ? '' : `<section class="card pad">
+        <div class="section-title"><h2>自分を団員として登録</h2></div>
+        <form data-form="register-self" style="display:flex;flex-direction:column;gap:16px">
+          <label class="field">氏名<input class="input" name="name" autocomplete="name" maxlength="30" required></label>
+          ${partPicker('')}
+          <label class="field">暗証番号<input class="input" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="new-password" minlength="4" maxlength="8" required></label>
+          <button class="cta" type="submit">管理者として登録</button>
         </form>
-      </section>
+      </section>`}
+
+      ${e.id ? `<section class="card pad">
+        <div class="section-title"><h2>練習日を直す</h2><button class="link" data-act="cancel-edit">やめる</button></div>
+        <form data-form="day" class="form-grid">
+          <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
+          ${dayFields(e)}
+          <button class="cta full" type="submit">保存</button>
+        </form>
+      </section>` : `<section class="card pad">
+        <div class="section-title">
+          <div class="label-row"><h2>練習日を足す</h2><button type="button" class="info" data-act="info" aria-expanded="false" aria-controls="pick-note" aria-label="選びかた">${ICON.info}</button></div>
+          ${state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}
+        </div>
+        <p id="pick-note" class="note" role="note" hidden>日付を押して何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。</p>
+        ${pickCalendar()}
+        <form data-form="days" class="form-grid">
+          ${dayFields(state.draft)}
+          <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
+        </form>
+      </section>`}
 
       <section class="card">
         <div class="part-head"><h2>練習日</h2><span>${a.days.length}日</span></div>
         ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions"><button class="ghost" data-act="edit-day" data-id="${esc(d.id)}">直す</button><button class="ghost danger" data-act="delete-day" data-id="${esc(d.id)}">消す</button></div></div>`).join('') : '<div class="empty">まだありません</div>'}
+          <div class="actions"><button class="ghost" data-act="copy-day" data-id="${esc(d.id)}">複製</button><button class="ghost" data-act="edit-day" data-id="${esc(d.id)}">直す</button><button class="ghost danger" data-act="delete-day" data-id="${esc(d.id)}">消す</button></div></div>`).join('') : '<div class="empty">まだありません</div>'}
       </section>
 
       <section class="card">
@@ -416,6 +564,7 @@
   async function loadAdmin() {
     const r = await api('adminData');
     if (r.ok) state.admin = r; else if (r.code !== 'UNAUTHORIZED') state.error = r.message;
+    if (!state.pickMonth) state.pickMonth = monthOf(state.today || new Date().toISOString());
   }
   async function openRoster() {
     if (!state.days.length) await loadHome();
@@ -426,10 +575,11 @@
   }
   async function afterLogin(r) {
     setToken(r.token);
+    try { localStorage.setItem(USED_KEY, '1'); } catch (e) { /* 残せない端末では何もしない */ }
     state.me = r.me;
     state.flash = '';
     await loadHome();
-    if (isMember()) state.view = 'home';
+    if (isMember()) state.view = PASSKEY && !r.hasPasskey ? 'offer' : 'home';
     else { state.view = 'admin'; await loadAdmin(); }
     if (location.hash) history.replaceState(null, '', location.pathname);
   }
@@ -455,7 +605,27 @@
     },
     'go-home': () => { state.view = isMember() ? 'home' : 'admin'; state.error = ''; render(); },
     'go-roster': () => run(openRoster),
-    'go-profile': () => { state.view = 'profile'; state.flash = ''; state.error = ''; render(); },
+    'go-profile': () => run(async () => {
+      state.view = 'profile'; state.flash = '';
+      const r = await api('passkeys');
+      state.passkeys = r.ok ? r.passkeys : [];
+    }),
+    'passkey-login': () => run(passkeyLogin),
+    'passkey-create': () => run(async () => {
+      const done = await createPasskey();
+      if (!done) return;
+      state.flash = 'パスキーを作りました';
+      if (state.view === 'offer') state.view = 'home';
+    }),
+    'passkey-delete': (el) => {
+      if (!confirm('このパスキーを消しますか？')) return;
+      run(async () => {
+        const r = await api('passkeyDelete', { id: el.dataset.id });
+        if (!r.ok) { state.error = r.message; return; }
+        state.passkeys = r.passkeys;
+        state.flash = 'パスキーを消しました';
+      });
+    },
     'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; await loadAdmin(); }),
     'logout': () => run(async () => {
       await api('logout');
@@ -463,7 +633,7 @@
       Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, admin: null, flash: '' });
     }),
     'info': (el) => {
-      const note = document.getElementById('reason-note');
+      const note = document.getElementById(el.getAttribute('aria-controls'));
       const open = note.hidden;
       note.hidden = !open;
       el.setAttribute('aria-expanded', String(open));
@@ -474,6 +644,30 @@
     'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
     'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; render(); window.scrollTo(0, 0); },
     'cancel-edit': () => { state.editDay = null; render(); },
+    'copy-day': (el) => {
+      const d = state.admin.days.find((x) => x.id === el.dataset.id);
+      if (!d) return;
+      state.editDay = null;
+      state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note };
+      state.picked = [];
+      render();
+      window.scrollTo(0, 0);
+    },
+    'pick-day': (el) => { keepDraft(); const d = el.dataset.date; togglePicked([d], !state.picked.includes(d)); render(); },
+    'pick-weekday': (el) => {
+      keepDraft();
+      const [y, m] = state.pickMonth.split('-').map(Number);
+      const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const dates = [];
+      for (let n = 1; n <= count; n++) if (new Date(Date.UTC(y, m - 1, n)).getUTCDay() === Number(el.dataset.wd)) dates.push(`${state.pickMonth}-${String(n).padStart(2, '0')}`);
+      // 今日より前の日は、まとめて選ぶときには入れない
+      const future = dates.filter((d) => d >= state.today);
+      const target = future.length ? future : dates;
+      togglePicked(target, !target.every((d) => state.picked.includes(d)));
+      render();
+    },
+    'pick-month': (el) => { keepDraft(); state.pickMonth = addMonth(state.pickMonth, Number(el.dataset.n)); render(); },
+    'pick-clear': () => { keepDraft(); state.picked = []; render(); },
     'delete-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d || !confirm(`${dateLabel(d.date)} の練習日と、その日の出欠を消しますか？`)) return;
@@ -543,8 +737,25 @@
     'day': (f) => run(async () => {
       const r = await api('saveDay', Object.assign({ id: state.editDay ? state.editDay.id : '' }, f));
       if (!r.ok) { state.error = r.message; return; }
-      state.flash = `${shortLabel(f.date)}を${state.editDay ? '保存' : '足'}しました`;
+      state.flash = `${shortLabel(f.date)}を保存しました`;
       state.editDay = null;
+      await Promise.all([loadAdmin(), loadHome()]);
+    }),
+    'days': (f) => run(async () => {
+      const dates = state.picked.slice();
+      const r = await api('saveDays', Object.assign({}, f, { dates }));
+      if (!r.ok) { state.error = r.message; state.draft = f; return; }
+      state.flash = dates.length === 1 ? `${shortLabel(dates[0])}を足しました` : `${shortLabel(dates[0])}から${shortLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
+      state.picked = [];
+      state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
+      await Promise.all([loadAdmin(), loadHome()]);
+    }),
+    'register-self': (f) => run(async () => {
+      if (!f.part) { state.error = 'パートを選んでください。'; return; }
+      const r = await api('registerSelf', f);
+      if (!r.ok) { state.error = r.message; return; }
+      state.me = r.me;
+      state.flash = '管理者として登録しました';
       await Promise.all([loadAdmin(), loadHome()]);
     }),
     'passphrase': (f) => run(async () => {

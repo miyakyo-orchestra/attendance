@@ -15,5 +15,5 @@
 ## 確かめかた
 
 - `npm install` のあと `npm test`（store.js のテスト。Node 22 以上）。
-- `npm run dev`（サーバー、127.0.0.1:8787）と `npm run dev:web`（画面）を両方立ち上げ、http://127.0.0.1:8765/ を開く。`.dev.vars` に `ADMIN_PASSWORD=admin123` と `ALLOWED_ORIGIN=http://127.0.0.1:8765` を書いておく（このファイルは commit しない）。
+- `npm run dev`（サーバー、127.0.0.1:8787）と `npm run dev:web`（画面）を両方立ち上げ、http://localhost:8765/ を開く。`.dev.vars` に `ADMIN_PASSWORD=admin123` と `ALLOWED_ORIGIN=http://localhost:8765` を書いておく（このファイルは commit しない）。パスキーは 127.0.0.1 では動かないので localhost で開く。Chromium の開発者ツールの WebAuthn の欄（Playwright なら CDP の WebAuthn.addVirtualAuthenticator）で仮の認証器を使って試せる。
 - スマホ幅（390px）と PC 幅、ライトとダークの両方を見る。
