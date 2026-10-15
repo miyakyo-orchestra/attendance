@@ -7,22 +7,9 @@
  * - 使える鍵は ES256（-7。iPhone・Android・Windows・Mac のパスキーはほぼこれ）と RS256（-257）。
  */
 
-export const ALGS = [-7, -257];
+import { toB64url } from './secret.js';
 
-/** base64url の文字列をバイト列に */
-export function fromB64url(s) {
-  s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-export function toB64url(bytes) {
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+export const ALGS = [-7, -257];
 
 /** clientDataJSON を読み、種類・チャレンジ・呼び出し元のサイトを確かめる。チャレンジを返す */
 export function readClientData(bytes, type, origin) {
@@ -112,8 +99,7 @@ function derToRaw(sig) {
 }
 
 /** CBOR を読む（パスキーに出てくる形だけ: 整数・バイト列・文字列・配列・連想配列） */
-function cbor(b, pos) {
-  const depth = arguments[2] || 0;
+function cbor(b, pos, depth = 0) {
   if (depth > 8 || pos >= b.length) throw bad();
   const head = b[pos++];
   const major = head >> 5;
