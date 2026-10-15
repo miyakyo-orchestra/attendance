@@ -23,11 +23,13 @@ export const PARTS = [
   { id: 'Hr', group: 'winds' },
   { id: 'Tp', group: 'winds' },
   { id: 'Tb', group: 'winds' },
+  { id: 'Tuba', group: 'winds' },
   { id: 'Perc', group: 'winds' },
 ];
-const PART_IDS = PARTS.map((p) => p.id);
+// パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
+const GROUPS = ['strings', 'winds'];
 
-// 役割: member（団員）・officer（役職。欠席理由を読める）・admin（管理者）
+// 役割: member（団員）・officer（役職。欠席理由を読め、練習日を登録できる）・admin（管理者）
 export const ROLES = ['member', 'officer', 'admin'];
 
 export const LIMITS = {
@@ -44,11 +46,14 @@ export const LIMITS = {
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   PBKDF2_ROUNDS: 20000,
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
+  PART_ID: /^[A-Za-z0-9.]{1,8}$/, // パートの名前（Vn・Tuba など）
+  PART_COUNT: 30,
   PASSKEYS: 10, // 一人が作れるパスキーの数
   CHALLENGE_SECONDS: 300, // パスキーの操作を始めてから終えるまでの時間
 };
 
-const STATUSES = ['attend', 'absent'];
+// 出欠: attend（出席）・late（遅刻）・early（早退）・absent（欠席）。遅刻と早退は時刻（at）を書ける
+const STATUSES = ['attend', 'late', 'early', 'absent'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -76,6 +81,9 @@ export class Store {
     x('CREATE INDEX IF NOT EXISTS days_date ON days (date)');
     x(`CREATE TABLE IF NOT EXISTS answers (day_id TEXT NOT NULL, member_id TEXT NOT NULL, status TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id))`);
+    if (!this.db.exec("SELECT 1 FROM pragma_table_info('answers') WHERE name = 'at'").length) {
+      x("ALTER TABLE answers ADD COLUMN at TEXT NOT NULL DEFAULT ''"); // 遅刻・早退の時刻（2026-10-15 から）
+    }
     // ログインの印。token は元に戻せない形（SHA-256）で置く。member_id が空なら管理用パスワードでのログイン
     x(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, member_id TEXT NOT NULL DEFAULT '',
       created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
@@ -118,6 +126,7 @@ export class Store {
       const [need, fn] = PRIVATE[action];
       if (need === 'member' && !who.member) return fail('団員としてログインしてください。', 'FORBIDDEN');
       if (need === 'admin' && who.role !== 'admin') return fail('管理者だけが使えます。', 'FORBIDDEN');
+      if (need === 'officer' && who.role !== 'admin' && who.role !== 'officer') return fail('役職と管理者だけが使えます。', 'FORBIDDEN');
       return await fn.call(this, p, who, c);
     } catch (e) {
       if (e && e.userMessage) return fail(e.userMessage, e.code || 'BAD_REQUEST');
@@ -184,6 +193,14 @@ export class Store {
   listDays() {
     return this.db.exec('SELECT id, date, kind, st, en, note FROM days ORDER BY date, st');
   }
+  /** 今のパートの一覧 [{ id, group }] */
+  parts() {
+    const v = this.kget('parts');
+    if (v) { try { return JSON.parse(v); } catch (e) { /* 壊れていれば初めの一覧 */ } }
+    return PARTS;
+  }
+  partIds() { return this.parts().map((p) => p.id); }
+
   /** パスキーの相手のサイト（ALLOWED_ORIGIN）と、その名前（rpId） */
   site() {
     const origin = String(this.env.ALLOWED_ORIGIN || '').trim();
@@ -220,7 +237,7 @@ export class Store {
 const PUBLIC = {
   /** 画面を開いたときに最初に読むもの */
   async info() {
-    return { ok: true, parts: PARTS, open: !!this.kget('passphrase') };
+    return { ok: true, parts: this.parts(), open: !!this.kget('passphrase') };
   },
 
   async register(p, c) {
@@ -228,7 +245,7 @@ const PUBLIC = {
     const part = String(p.part || '');
     const pin = String(p.pin || '');
     if (!name) return fail('氏名を入れてください。');
-    if (!PART_IDS.includes(part)) return fail('パートを選んでください。');
+    if (!this.partIds().includes(part)) return fail('パートを選んでください。');
     if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
     await this.checkPassphrase(p.passphrase, c.ip);
     const pinHash = await hashSecret(pin);
@@ -317,11 +334,11 @@ const PUBLIC = {
 const PRIVATE = {
   home: ['any', function (p, who) {
     const mine = who.member
-      ? this.db.exec('SELECT day_id, status, reason FROM answers WHERE member_id = ?', who.member.id)
+      ? this.db.exec('SELECT day_id, status, reason, at FROM answers WHERE member_id = ?', who.member.id)
       : [];
     const answers = {};
-    for (const a of mine) answers[a.day_id] = { status: a.status, reason: a.reason };
-    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: PARTS };
+    for (const a of mine) answers[a.day_id] = { status: a.status, reason: a.reason, at: a.at };
+    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: this.parts() };
   }],
 
   logout: ['any', function (p, who) {
@@ -334,12 +351,14 @@ const PRIVATE = {
     if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
     if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
     const status = String(p.status || '');
-    if (!STATUSES.includes(status)) return fail('出席か欠席を選んでください。');
+    if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
     const reason = status === 'absent' ? cleanText(p.reason, LIMITS.REASON) : '';
-    this.db.exec(`INSERT INTO answers (day_id, member_id, status, reason, updated_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT (day_id, member_id) DO UPDATE SET status = excluded.status, reason = excluded.reason, updated_at = excluded.updated_at`,
-    day.id, who.member.id, status, reason, new Date(this.now()).toISOString());
-    return { ok: true, answer: { status, reason } };
+    const at = status === 'late' || status === 'early' ? String(p.at || '') : '';
+    if (at && !TIME.test(at)) return fail('時刻の形が正しくありません。');
+    this.db.exec(`INSERT INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (day_id, member_id) DO UPDATE SET status = excluded.status, reason = excluded.reason, at = excluded.at, updated_at = excluded.updated_at`,
+    day.id, who.member.id, status, reason, at, new Date(this.now()).toISOString());
+    return { ok: true, answer: { status, reason, at } };
   }],
 
   /** 自分の氏名・パートを直す */
@@ -347,7 +366,7 @@ const PRIVATE = {
     const name = cleanName(p.name);
     const part = String(p.part || '');
     if (!name) return fail('氏名を入れてください。');
-    if (!PART_IDS.includes(part)) return fail('パートを選んでください。');
+    if (!this.partIds().includes(part)) return fail('パートを選んでください。');
     const same = this.db.exec('SELECT id FROM members WHERE name = ? AND id <> ?', name, who.member.id);
     if (same.length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
     this.db.exec('UPDATE members SET name = ?, part = ? WHERE id = ?', name, part, who.member.id);
@@ -410,23 +429,26 @@ const PRIVATE = {
     if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
     const canRead = who.role === 'officer' || who.role === 'admin';
     const selfId = who.member ? who.member.id : '';
-    const rows = this.db.exec(`SELECT m.id, m.name, m.part, a.status, a.reason FROM members m
+    const rows = this.db.exec(`SELECT m.id, m.name, m.part, a.status, a.reason, a.at FROM members m
       LEFT JOIN answers a ON a.member_id = m.id AND a.day_id = ? ORDER BY m.name`, day.id);
     const members = rows.map((r) => {
       const out = { id: r.id, name: r.name, part: r.part, status: r.status || 'none' };
+      if (r.at) out.at = r.at; // 遅刻・早退の時刻は誰にでも見せる
       if (r.status === 'absent' && (canRead || r.id === selfId)) out.reason = r.reason || '';
       return out;
     });
-    return { ok: true, day, members, canReadReasons: canRead };
+    return { ok: true, day, members, canReadReasons: canRead, parts: this.parts() };
   }],
 
   // ---------------- 管理者 ----------------
-  adminData: ['admin', function () {
+  /** 管理画面に出すもの。役職には練習日だけを返す */
+  adminData: ['officer', function (p, who) {
+    if (who.role !== 'admin') return { ok: true, days: this.listDays() };
     const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
-    return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES };
+    return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
   }],
 
-  saveDay: ['admin', function (p) {
+  saveDay: ['officer', function (p) {
     const date = String(p.date || '');
     if (!isDate(date)) return fail('日付を入れてください。');
     const f = dayFields(p);
@@ -443,7 +465,7 @@ const PRIVATE = {
   }],
 
   /** 同じ種類・時刻・メモの練習日を、いくつもの日付にまとめて足す */
-  saveDays: ['admin', function (p) {
+  saveDays: ['officer', function (p) {
     const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
     if (!dates.length) return fail('日付を選んでください。');
     if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
@@ -458,34 +480,13 @@ const PRIVATE = {
     return { ok: true, added: dates.length, days: this.listDays() };
   }],
 
-  deleteDay: ['admin', function (p) {
+  deleteDay: ['officer', function (p) {
     const id = String(p.id || '');
     this.db.txn(() => {
       this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
       this.db.exec('DELETE FROM days WHERE id = ?', id);
     });
     return { ok: true, days: this.listDays() };
-  }],
-
-  /** 管理用パスワードで入った人が、自分を管理者の団員として登録する（合言葉は要らない）。今のログインがそのまま団員のログインになる */
-  registerSelf: ['admin', async function (p, who) {
-    if (who.member) return fail('すでに団員としてログインしています。');
-    const name = cleanName(p.name);
-    const part = String(p.part || '');
-    const pin = String(p.pin || '');
-    if (!name) return fail('氏名を入れてください。');
-    if (!PART_IDS.includes(part)) return fail('パートを選んでください。');
-    if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
-    const pinHash = await hashSecret(pin);
-    if (this.db.exec('SELECT 1 FROM members WHERE name = ?', name).length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
-    const id = randomId(9);
-    this.db.txn(() => {
-      this.db.exec('INSERT INTO members (id, name, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        id, name, part, 'admin', pinHash, new Date(this.now()).toISOString());
-      this.db.exec('UPDATE sessions SET member_id = ? WHERE token = ?', id, who.session);
-    });
-    const m = this.db.exec('SELECT * FROM members WHERE id = ?', id)[0];
-    return { ok: true, me: this.meOf({ member: m, role: 'admin' }) };
   }],
 
   setRole: ['admin', function (p, who) {
@@ -503,17 +504,73 @@ const PRIVATE = {
 
   /** 団員を消す（出欠の記録も消す。暗証番号を忘れた人は、消してから登録し直してもらう） */
   deleteMember: ['admin', function (p, who) {
-    const id = String(p.id || '');
-    const m = this.db.exec('SELECT * FROM members WHERE id = ?', id)[0];
-    if (!m) return fail('団員が見つかりません。', 'NOT_FOUND');
-    if (m.role === 'admin' && this.adminCount() <= 1 && who.member) return fail('最後の管理者は消せません。', 'LAST_ADMIN');
+    return PRIVATE.deleteMembers[1].call(this, { ids: [p.id] }, who);
+  }],
+
+  /** 団員をまとめて消す（卒業した人など） */
+  deleteMembers: ['admin', function (p, who) {
+    const ids = [...new Set(Array.isArray(p.ids) ? p.ids.map(String) : [])];
+    if (!ids.length) return fail('団員を選んでください。');
+    const rows = ids.map((id) => this.db.exec('SELECT * FROM members WHERE id = ?', id)[0]);
+    if (rows.some((m) => !m)) return fail('団員が見つかりません。', 'NOT_FOUND');
+    const admins = rows.filter((m) => m.role === 'admin').length;
+    if (admins && this.adminCount() - admins < 1 && who.member) return fail('最後の管理者は消せません。', 'LAST_ADMIN');
     this.db.txn(() => {
-      this.db.exec('DELETE FROM answers WHERE member_id = ?', id);
-      this.db.exec('DELETE FROM sessions WHERE member_id = ?', id);
-      this.db.exec('DELETE FROM passkeys WHERE member_id = ?', id);
-      this.db.exec('DELETE FROM members WHERE id = ?', id);
+      for (const id of ids) {
+        this.db.exec('DELETE FROM answers WHERE member_id = ?', id);
+        this.db.exec('DELETE FROM sessions WHERE member_id = ?', id);
+        this.db.exec('DELETE FROM passkeys WHERE member_id = ?', id);
+        this.db.exec('DELETE FROM members WHERE id = ?', id);
+      }
     });
-    return { ok: true };
+    return { ok: true, deleted: ids.length };
+  }],
+
+  /** 年度（4月から翌年3月）の練習日と、その出欠をまとめて消す */
+  deleteYear: ['admin', function (p) {
+    const y = Number(p.year);
+    if (!Number.isInteger(y) || y < 2000 || y > 2100) return fail('年度を選んでください。');
+    const [from, to] = yearRange(y);
+    if (to >= this.today()) return fail('終わっていない年度は消せません。');
+    let n = 0;
+    this.db.txn(() => {
+      const ids = this.db.exec('SELECT id FROM days WHERE date BETWEEN ? AND ?', from, to).map((d) => d.id);
+      for (const id of ids) {
+        this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
+        this.db.exec('DELETE FROM days WHERE id = ?', id);
+      }
+      n = ids.length;
+    });
+    return { ok: true, deleted: n, days: this.listDays() };
+  }],
+
+  /** パートを足す。弦か管打の最後に入る */
+  addPart: ['admin', function (p) {
+    const id = String(p.id || '').trim();
+    const group = String(p.group || '');
+    if (!LIMITS.PART_ID.test(id)) return fail('パートの名前は英数字8文字までにしてください。');
+    if (!GROUPS.includes(group)) return fail('弦か管打を選んでください。');
+    const parts = this.parts().slice();
+    if (parts.some((x) => x.id.toLowerCase() === id.toLowerCase())) return fail('同じ名前のパートがあります。', 'DUPLICATE');
+    if (parts.length >= LIMITS.PART_COUNT) return fail(`パートは${LIMITS.PART_COUNT}までです。`);
+    let at = parts.length;
+    for (let i = parts.length - 1; i >= 0; i--) if (parts[i].group === group) { at = i + 1; break; }
+    if (group === 'strings' && !parts.some((x) => x.group === 'strings')) at = 0;
+    parts.splice(at, 0, { id, group });
+    this.kput('parts', JSON.stringify(parts));
+    return { ok: true, parts };
+  }],
+
+  /** パートを消す。そのパートの団員がいれば消せない */
+  deletePart: ['admin', function (p) {
+    const id = String(p.id || '');
+    const parts = this.parts();
+    if (!parts.some((x) => x.id === id)) return fail('パートが見つかりません。', 'NOT_FOUND');
+    const n = this.db.exec('SELECT COUNT(*) AS n FROM members WHERE part = ?', id)[0].n;
+    if (n) return fail(`${id} の団員が${n}人いるため消せません。先にその人のパートを変えてください。`, 'IN_USE');
+    const next = parts.filter((x) => x.id !== id);
+    this.kput('parts', JSON.stringify(next));
+    return { ok: true, parts: next };
   }],
 
   setPassphrase: ['admin', async function (p) {
@@ -523,20 +580,25 @@ const PRIVATE = {
     return { ok: true, open: true };
   }],
 
-  exportCsv: ['admin', function () {
-    const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, m.name, m.part, a.status, a.reason, a.updated_at
+  /** CSV の書き出し。year を渡すとその年度の練習日だけ */
+  exportCsv: ['admin', function (p) {
+    const [from, to] = p && p.year ? yearRange(Number(p.year)) : ['0000-00-00', '9999-99-99'];
+    const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, m.name, m.part, a.status, a.reason, a.at, a.updated_at
       FROM days d CROSS JOIN members m LEFT JOIN answers a ON a.day_id = d.id AND a.member_id = m.id
-      ORDER BY d.date, d.st, m.part, m.name`);
-    const label = { attend: '出席', absent: '欠席' };
-    const order = Object.fromEntries(PART_IDS.map((id, i) => [id, i]));
-    rows.sort((a, b) => (a.date + a.st).localeCompare(b.date + b.st) || (order[a.part] - order[b.part]) || a.name.localeCompare(b.name, 'ja'));
-    const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '欠席理由', '回答日時']];
-    for (const r of rows) lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, label[r.status] || '未回答', r.reason || '', r.updated_at || '']);
+      WHERE d.date BETWEEN ? AND ? ORDER BY d.date, d.st, m.part, m.name`, from, to);
+    const label = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席' };
+    const order = Object.fromEntries(this.partIds().map((id, i) => [id, i]));
+    const pos = (part) => (part in order ? order[part] : 999);
+    rows.sort((a, b) => (a.date + a.st).localeCompare(b.date + b.st) || (pos(a.part) - pos(b.part)) || a.name.localeCompare(b.name, 'ja'));
+    const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '時刻', '欠席理由', '回答日時']];
+    for (const r of rows) lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, label[r.status] || '未回答', r.at || '', r.reason || '', r.updated_at || '']);
     return { ok: true, csv: lines.map((l) => l.map(csvCell).join(',')).join('\r\n') + '\r\n' };
   }],
 };
 
 // ---------------- 小さな道具 ----------------
+/** 年度（y年4月1日から翌年3月31日まで） */
+function yearRange(y) { return [`${y}-04-01`, `${y + 1}-03-31`]; }
 /** 練習日の日付が正しいか */
 function isDate(d) { return DATE.test(d) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d; }
 /** 練習日の種類・時刻・メモを確かめてそろえる。誤りがあれば { error } */
