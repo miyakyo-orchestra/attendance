@@ -79,6 +79,10 @@ export class Store {
     x(`CREATE TABLE IF NOT EXISTS days (id TEXT PRIMARY KEY, date TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '',
       st TEXT NOT NULL DEFAULT '', en TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '')`);
     x('CREATE INDEX IF NOT EXISTS days_date ON days (date)');
+    // 出欠をとらない予定（授業・祝日など。配るカレンダーにだけ載せる）は noentry = 1（2026-10-15 から）
+    if (!this.db.exec("SELECT 1 FROM pragma_table_info('days') WHERE name = 'noentry'").length) {
+      x('ALTER TABLE days ADD COLUMN noentry INTEGER NOT NULL DEFAULT 0');
+    }
     x(`CREATE TABLE IF NOT EXISTS answers (day_id TEXT NOT NULL, member_id TEXT NOT NULL, status TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id))`);
     if (!this.db.exec("SELECT 1 FROM pragma_table_info('answers') WHERE name = 'at'").length) {
@@ -206,7 +210,7 @@ export class Store {
     return this.db.exec("SELECT COUNT(*) AS n FROM members WHERE role = 'admin'")[0].n;
   }
   listDays() {
-    return this.db.exec('SELECT id, date, kind, st, en, note FROM days ORDER BY date, st');
+    return this.db.exec('SELECT id, date, kind, st, en, note, noentry FROM days ORDER BY date, st');
   }
   /** 今のパートの一覧 [{ id, group }] */
   parts() {
@@ -364,7 +368,7 @@ const PRIVATE = {
 
   answer: ['member', function (p, who) {
     const day = this.db.exec('SELECT * FROM days WHERE id = ?', String(p.dayId || ''))[0];
-    if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    if (!day || day.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
     if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
     const status = String(p.status || '');
     if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
@@ -441,7 +445,7 @@ const PRIVATE = {
 
   /** 練習日ごとの、パート別の出欠。欠席理由は本人と、役職・管理者にだけ入れる */
   roster: ['any', function (p, who) {
-    const day = this.db.exec('SELECT id, date, kind, st, en, note FROM days WHERE id = ?', String(p.dayId || ''))[0];
+    const day = this.db.exec('SELECT id, date, kind, st, en, note FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
     if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
     const canRead = who.role === 'officer' || who.role === 'admin';
     const selfId = who.member ? who.member.id : '';
@@ -472,10 +476,10 @@ const PRIVATE = {
     let id = String(p.id || '');
     if (id) {
       if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) return fail('練習日が見つかりません。', 'NOT_FOUND');
-      this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, id);
+      this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, id);
     } else {
       id = randomId(9);
-      this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note);
+      this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry) VALUES (?, ?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note, f.noentry);
     }
     return { ok: true, id, days: this.listDays() };
   }],
@@ -490,7 +494,7 @@ const PRIVATE = {
     if (f.error) return fail(f.error);
     this.db.txn(() => {
       for (const date of dates) {
-        this.db.exec('INSERT INTO days (id, date, kind, st, en, note) VALUES (?, ?, ?, ?, ?, ?)', randomId(9), date, f.kind, f.st, f.en, f.note);
+        this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry) VALUES (?, ?, ?, ?, ?, ?, ?)', randomId(9), date, f.kind, f.st, f.en, f.note, f.noentry);
       }
     });
     return { ok: true, added: dates.length, days: this.listDays() };
@@ -601,7 +605,7 @@ const PRIVATE = {
     const [from, to] = p && p.year ? yearRange(Number(p.year)) : ['0000-00-00', '9999-99-99'];
     const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, m.name, m.part, a.status, a.reason, a.at, a.updated_at
       FROM days d CROSS JOIN members m LEFT JOIN answers a ON a.day_id = d.id AND a.member_id = m.id
-      WHERE d.date BETWEEN ? AND ? ORDER BY d.date, d.st, m.part, m.name`, from, to);
+      WHERE d.noentry = 0 AND d.date BETWEEN ? AND ? ORDER BY d.date, d.st, m.part, m.name`, from, to);
     const label = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席' };
     const order = Object.fromEntries(this.partIds().map((id, i) => [id, i]));
     const pos = (part) => (part in order ? order[part] : 999);
@@ -624,7 +628,10 @@ function dayFields(p) {
   if (st && !TIME.test(st)) return { error: '開始時刻の形が正しくありません。' };
   if (en && !TIME.test(en)) return { error: '終了時刻の形が正しくありません。' };
   if (st && en && en <= st) return { error: '終了時刻は開始時刻より後にしてください。' };
-  return { kind: cleanText(p.kind, LIMITS.KIND), st, en, note: cleanText(p.note, LIMITS.NOTE) };
+  const noentry = p.noentry === true || p.noentry === 1 || p.noentry === '1' || p.noentry === 'on' ? 1 : 0;
+  const kind = cleanText(p.kind, LIMITS.KIND);
+  if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
+  return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
 }
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
