@@ -62,6 +62,7 @@
     month: '', // 練習日のカレンダーの月
     calDate: '', // カレンダーで選んでいる日
     showPast: false,
+    adminShowPast: false, // 管理の練習日で過ぎた日を開いているか
     flash: '',
     error: '',
     busy: false,
@@ -767,13 +768,34 @@
 
   // 管理: 練習日（パートリーダーも使える）
   function adminDays(a) {
-    const days = a.days.slice().reverse();
+    // これからの日を近い順に月ごとに並べ、過ぎた日は下のボタンで開く
+    const up = a.days.filter((d) => d.date >= state.today);
+    const past = a.days.filter((d) => d.date < state.today).reverse();
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>${a.days.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
-        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
       </section>
+      ${up.length ? adminMonths(up) : '<div class="empty">これからの練習日はありません</div>'}
+      ${past.length ? `<button class="link center" data-act="toggle-admin-past" aria-expanded="${state.adminShowPast}">過去の練習日 ${past.length}日</button>` : ''}
+      ${state.adminShowPast ? adminMonths(past) : ''}
       ${state.daySheet ? daySheet() : ''}`;
+  }
+  /** 管理の練習日を月ごとのカードに分ける */
+  function adminMonths(list) {
+    const year = parseDate(state.today).y;
+    const groups = [];
+    for (const d of list) {
+      const ym = monthOf(d.date);
+      if (!groups.length || groups[groups.length - 1][0] !== ym) groups.push([ym, []]);
+      groups[groups.length - 1][1].push(d);
+    }
+    return groups.map(([ym, ds]) => {
+      const [y, m] = ym.split('-').map(Number);
+      return `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月 ${ds.length}件</h2><section class="card">${ds.map(adminDayRow).join('')}</section></div>`;
+    }).join('');
+  }
+  function adminDayRow(d) {
+    return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
@@ -1017,6 +1039,7 @@
     // 練習日（ホーム）
     'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
+    'toggle-admin-past': () => { state.adminShowPast = !state.adminShowPast; render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
     'cal-today': () => { state.month = monthOf(state.today); state.calDate = state.today; render(); },
     'month': (el) => {
