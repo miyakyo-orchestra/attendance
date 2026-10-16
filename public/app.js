@@ -404,6 +404,16 @@
     const a = state.answers[d.id] || { status: 'none' };
     return `<span class="pill ${a.status}${!isPast && a.status === 'none' ? ' todo' : ''}">${esc(statusText(a))}</span>`;
   }
+  /** 行の右の札。これからの日は押せて、未回答なら出席に、出席なら未回答に戻す。遅刻・早退・欠席は出欠の入力を開く */
+  function pillButton(d, isPast) {
+    if (isPast) return myPill(d, true);
+    const st = (state.answers[d.id] || { status: 'none' }).status;
+    const act = st === 'none' || st === 'attend' ? 'quick-attend' : 'open-day';
+    const label = st === 'none' ? `${dateLabel(d.date)}を出席にする` : st === 'attend' ? `${dateLabel(d.date)}の出席を取り消す` : `${dateLabel(d.date)}の出欠を直す`;
+    return `<button class="pill-btn" data-act="${act}" data-id="${esc(d.id)}" aria-label="${esc(label)}">${myPill(d, false)}</button>`;
+  }
+  /** その日たちのうち、これからの日でまだ答えていない練習 */
+  function unanswered(days) { return days.filter((d) => !d.noentry && d.date >= state.today && !state.answers[d.id]); }
   /** 姓と名の欄（姓と名はスペースなしでつないで氏名にする） */
   function nameFields(me) {
     const v = (k) => (me ? ` value="${esc(me[k] || '')}"` : '');
@@ -499,7 +509,9 @@
       const flush = () => {
         if (!group.length) return;
         const [y, m] = cur.split('-').map(Number);
-        html += `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2><div class="card">${group.map((d) => dayRow(d, false)).join('')}</div></div>`;
+        const todo = unanswered(upcoming.filter((d) => monthOf(d.date) === cur));
+        const bulk = isMember() && todo.length > 1 ? `<button class="link bulk" data-act="bulk-attend" data-month="${cur}">未回答を出席にする</button>` : '';
+        html += `<div class="month-group"><div class="month-head"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2>${bulk}</div><div class="card">${group.map((d) => dayRow(d, false)).join('')}</div></div>`;
         group = [];
       };
       for (const d of rest) {
@@ -516,10 +528,10 @@
   }
   /** 練習日の1行 */
   function dayRow(d, isPast) {
-    return `<button class="day${isPast ? ' past' : ''}" data-act="open-day" data-id="${esc(d.id)}">
+    // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
+    return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
       <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
-      ${isMember() ? myPill(d, isPast) : ''}
-    </button>`;
+    </button>${isMember() ? pillButton(d, isPast) : ''}</div>`;
   }
 
   /** カレンダーで最初に選ぶ日。今日がその月なら今日、なければその月の最初の予定の日 */
@@ -573,7 +585,7 @@
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
       const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
-      return `<button class="ag-row" data-act="open-day" data-id="${esc(d.id)}">${time}${main}${isMember() ? myPill(d, past) : ''}</button>`;
+      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? pillButton(d, past) : ''}</div>`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
       <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
@@ -1032,6 +1044,32 @@
 
     // 練習日（ホーム）
     'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
+    // 札を押すと、待たずに出席（または未回答）にしてから裏で送る。失敗したら元に戻す
+    'quick-attend': async (el) => {
+      const id = el.dataset.id;
+      const before = state.answers[id];
+      const status = before && before.status === 'attend' ? 'none' : 'attend';
+      if (status === 'none') delete state.answers[id]; else state.answers[id] = { status, reason: '', at: '' };
+      state.flash = ''; state.error = '';
+      render();
+      const r = await api('answer', { dayId: id, status });
+      if (r.ok) return;
+      if (before) state.answers[id] = before; else delete state.answers[id];
+      check(r);
+      render();
+    },
+    'bulk-attend': (el) => {
+      const ym = el.dataset.month;
+      const todo = unanswered(state.days.filter((d) => monthOf(d.date) === ym));
+      if (!todo.length) return;
+      if (!confirm(`${Number(ym.slice(5))}月の未回答${todo.length}日を出席にしますか`)) return;
+      run(async () => {
+        const r = await api('answerMany', { dayIds: todo.map((d) => d.id) });
+        if (!check(r)) return;
+        Object.assign(state.answers, r.answers);
+        state.flash = `${Object.keys(r.answers).length}日を出席にしました`;
+      });
+    },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
     'toggle-admin-past': () => { state.adminShowPast = !state.adminShowPast; render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },

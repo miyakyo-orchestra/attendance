@@ -422,6 +422,11 @@ const PRIVATE = {
     if (!day || day.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
     if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
     const status = String(p.status || '');
+    // none は答えを取り消して未回答に戻す（リストの札を押し直したとき）
+    if (status === 'none') {
+      this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id);
+      return { ok: true, answer: { status: 'none', reason: '', at: '' } };
+    }
     if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
     const reason = status === 'absent' ? cleanText(p.reason, LIMITS.REASON) : '';
     const at = status === 'late' || status === 'early' ? String(p.at || '') : '';
@@ -430,6 +435,22 @@ const PRIVATE = {
       ON CONFLICT (day_id, member_id) DO UPDATE SET status = excluded.status, reason = excluded.reason, at = excluded.at, updated_at = excluded.updated_at`,
     day.id, who.member.id, status, reason, at, this.stamp());
     return { ok: true, answer: { status, reason, at } };
+  }],
+
+  /** まだ答えていないこれからの練習日を、まとめて出席にする。答えてある日はそのまま */
+  answerMany: ['member', function (p, who) {
+    const ids = Array.isArray(p.dayIds) ? p.dayIds.slice(0, 200).map(String) : [];
+    const today = this.today();
+    const stamp = this.stamp();
+    const answers = {};
+    for (const id of ids) {
+      const day = this.db.exec('SELECT * FROM days WHERE id = ?', id)[0];
+      if (!day || day.noentry || day.date < today) continue;
+      if (this.db.exec('SELECT 1 FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id).length) continue;
+      this.db.exec("INSERT INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, 'attend', '', '', ?)", day.id, who.member.id, stamp);
+      answers[day.id] = { status: 'attend', reason: '', at: '' };
+    }
+    return { ok: true, answers };
   }],
 
   /** 自分の氏名・パートを直す */
