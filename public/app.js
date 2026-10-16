@@ -42,6 +42,8 @@
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>', 20),
     trash: svg('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/>', 20),
     cal: svg(CALENDAR, 20),
+    plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
+    close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
   };
 
   // ---------------- 画面の状態 ----------------
@@ -76,6 +78,7 @@
     admin: null,
     adminTab: 'days', // 管理画面のタブ
     editDay: null,
+    daySheet: '', // 開いている練習日のシート。add（足す）か edit（直す）
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
@@ -233,7 +236,7 @@
   }, true);
   window.addEventListener('scroll', closeTip, { passive: true });
   window.addEventListener('resize', closeTip);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTip(); });
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; closeTip(); if (state.daySheet) { keepDraft(); closeSheet(); } });
 
   // ---------------- 小さな道具 ----------------
   /** CSV をファイルとして保存させる。先頭の印（BOM）があると、Excel でも文字化けしない */
@@ -294,7 +297,12 @@
   function render() {
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
     closeTip();
+    const sheetTop = app.querySelector('.sheet-body') ? app.querySelector('.sheet-body').scrollTop : 0;
     app.innerHTML = (VIEWS[state.view] || viewAuth)();
+    if (app.querySelector('.sheet-body')) app.querySelector('.sheet-body').scrollTop = sheetTop; // 日付を選んで描き直しても、シートの中の位置を保つ
+    // 時刻の欄は、描いたあとで値を入れる。value に書くと、iPhone の「リセット」がその値に戻すだけで空にならないため
+    app.querySelectorAll('input[type="time"][data-value]').forEach((el) => { el.value = el.dataset.value; });
+    document.body.classList.toggle('sheet-open', !!app.querySelector('.sheet'));
     if (state.view === 'roster') keepChipScroll();
     if (state.busy) setBusy(true);
     syncHistory();
@@ -345,7 +353,7 @@
   let subPushed = false;
   let ignorePop = false;
   function syncHistory() {
-    const sub = SUB_VIEWS.includes(state.view);
+    const sub = SUB_VIEWS.includes(state.view) || (state.view === 'admin' && !!state.daySheet);
     if (sub && !subPushed) { history.pushState({ sub: 1 }, ''); subPushed = true; }
     if (!sub && subPushed) { subPushed = false; ignorePop = true; history.back(); }
   }
@@ -353,6 +361,7 @@
     if (ignorePop) { ignorePop = false; return; }
     if (!subPushed) return;
     subPushed = false;
+    if (state.view === 'admin' && state.daySheet) { keepDraft(); closeSheet(); return; }
     goHome();
   });
 
@@ -591,7 +600,7 @@
         </div>
         <div class="at-box"${a.status === 'late' || a.status === 'early' ? '' : ' hidden'}>
           <label class="field" for="at">時刻 任意</label>
-          <input id="at" name="at" class="input" type="time" value="${esc(a.at || '')}"${dis}>
+          <input id="at" name="at" class="input" type="time" data-value="${esc(a.at || '')}"${dis}>
         </div>
         <div class="reason-box"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
@@ -751,46 +760,55 @@
     return page(`
       <h1>管理</h1>
       ${admin ? `<div class="seg" role="group" aria-label="管理の項目">${ADMIN_TABS.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>` : ''}
-      ${messages()}
+      ${state.daySheet ? (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '') : messages()}
       ${body}
     `);
   }
 
   // 管理: 練習日（パートリーダーも使える）
   function adminDays(a) {
-    const e = state.editDay || {};
     const days = a.days.slice().reverse();
-    return `${e.id ? `<section class="card pad">
-        <div class="section-title"><h2>練習日を直す</h2><button class="link" data-act="cancel-edit">やめる</button></div>
-        <form data-form="day" class="form-grid">
+    return `<section class="card">
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>${a.days.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
+        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
+      </section>
+      ${state.daySheet ? daySheet() : ''}`;
+  }
+  /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
+  function daySheet() {
+    const e = state.editDay || {};
+    const edit = state.daySheet === 'edit';
+    const title = edit ? '練習日を直す' : '練習日を足す';
+    const enter = sheetEnter;
+    sheetEnter = false;
+    const body = edit ? `<form data-form="day" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
           ${dayFields(e)}
           <button class="cta full" type="submit">保存する</button>
-        </form>
-      </section>` : `<section class="card pad">
-        <div class="section-title">
-          <div class="label-row"><h2>練習日を足す</h2>${tip('選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
-          ${state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}
-        </div>
-        ${pickCalendar()}
+        </form>` : `${pickCalendar()}
         <form data-form="days" class="form-grid">
           ${dayFields(state.draft)}
           <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
-        </form>
-      </section>`}
-
-      <section class="card">
-        <div class="part-head"><h2>練習日</h2><span>${a.days.length}日</span></div>
-        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
+        </form>`;
+    return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-sheet"></div>
+      <section class="sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${title}">
+        <div class="sheet-head">
+          <div class="label-row"><h2>${title}</h2>${edit ? '' : tip('選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
+          <div class="head-end">${!edit && state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}<button class="icon" data-act="close-sheet" aria-label="閉じる">${ICON.close}</button></div>
+        </div>
+        <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${body}</div>
       </section>`;
   }
+  let sheetEnter = false; // 開いた直後の1回だけ、下から出てくる動きをつける
+  function openSheet(kind) { state.daySheet = kind; state.error = ''; state.flash = ''; sheetEnter = true; render(); }
+  function closeSheet() { state.daySheet = ''; state.editDay = null; state.error = ''; render(); }
   /** 練習日の種類・時刻・メモの欄 */
   function dayFields(v) {
     return `<label class="field full">種類<input class="input" name="kind" list="kinds" value="${esc(v.kind || '')}" maxlength="20"></label>
       <datalist id="kinds">${KINDS.map((k) => `<option value="${k}">`).join('')}</datalist>
-      <label class="field">開始<input class="input" type="time" name="st" value="${esc(v.st || '')}"></label>
-      <label class="field">終了<input class="input" type="time" name="en" value="${esc(v.en || '')}"></label>
+      <label class="field">開始<input class="input" type="time" name="st" data-value="${esc(v.st || '')}"></label>
+      <label class="field">終了<input class="input" type="time" name="en" data-value="${esc(v.en || '')}"></label>
       <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>
       <label class="switch full"><input type="checkbox" name="noentry"${v.noentry && v.noentry !== '0' ? ' checked' : ''}><span>出欠をとらない</span>${tip('出欠をとらない予定', '授業や祝日など、カレンダーに載せるだけの予定にします。')}</label>`;
   }
@@ -980,7 +998,7 @@
     'go-home': goHome,
     'go-roster': () => run(openRoster),
     'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
-    'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; await loadAdmin(); window.scrollTo(0, 0); }),
+    'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; state.daySheet = ''; await loadAdmin(); window.scrollTo(0, 0); }),
     'go-profile': () => run(async () => {
       state.view = 'profile'; state.flash = '';
       const r = await api('passkeys');
@@ -1032,17 +1050,17 @@
     },
 
     // 管理
-    'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.editDay = null; render(); },
-    'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; render(); window.scrollTo(0, 0); },
-    'cancel-edit': () => { state.editDay = null; render(); },
+    'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.editDay = null; state.daySheet = ''; render(); },
+    'add-day': () => { state.editDay = null; openSheet('add'); },
+    'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; if (state.editDay) openSheet('edit'); },
+    'close-sheet': () => { keepDraft(); closeSheet(); },
     'copy-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d) return;
       state.editDay = null;
       state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
       state.picked = [];
-      render();
-      window.scrollTo(0, 0);
+      openSheet('add');
     },
     'delete-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
@@ -1140,6 +1158,7 @@
       if (!check(r)) return;
       state.flash = `${dateLabel(f.date)}を保存しました`;
       state.editDay = null;
+      state.daySheet = '';
       await reloadAll();
     }),
     'days': (f) => run(async () => {
@@ -1148,6 +1167,7 @@
       if (!check(r)) { state.draft = f; return; }
       state.flash = dates.length === 1 ? `${dateLabel(dates[0])}を足しました` : `${dateLabel(dates[0])}から${dateLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
       state.picked = [];
+      state.daySheet = '';
       state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
       await reloadAll();
     }),

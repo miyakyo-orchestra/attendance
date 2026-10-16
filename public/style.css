@@ -7,6 +7,7 @@
   --amber: #ea7a1e; --amber-ink: #a44e0a; --amber-soft: #fcefe3;
   --grey: #9aa1ac; --on-accent: #ffffff; --danger: #c0352b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, .32); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .12);
   /* 予定の色（出欠の青・橙と混ざらない色）。part は個人・パートなど、tutti は合奏、stage は本番・リハーサルなど */
   --part: #2f8a4c; --part-soft: #e2f3e7; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #7247c9; --stage-soft: #ece5fb;
   color-scheme: light;
@@ -20,6 +21,7 @@
     --amber: #f0a056; --amber-ink: #f3b77c; --amber-soft: #3a2a1b;
     --grey: #767d89; --on-accent: #0f1115; --danger: #f08a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --scrim: rgba(0, 0, 0, .55); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .5);
     --part: #6fcf8f; --part-soft: #1c3324; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #b49af2; --stage-soft: #2b2342;
     color-scheme: dark;
   }
@@ -390,3 +392,21 @@ main.auth h1 { font-size: 26px; }
 .doc-date { margin: -8px 0 0; font-size: 13px; color: var(--sub); }
 .card.doc { gap: 8px; }
 .doc p { margin: 0; font-size: 14px; line-height: 1.8; }
+
+/* 練習日を足す・直すシート。一覧の上に下から重ねて開く */
+.head-end { display: flex; align-items: center; gap: 8px; }
+.part-head .head-end .ghost.icon { width: 36px; min-height: 36px; height: 36px; }
+body.sheet-open { overflow: hidden; }
+.sheet-back { position: fixed; inset: 0; z-index: 30; background: var(--scrim); }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-width: 430px; margin: 0 auto;
+  max-height: calc(100dvh - max(24px, env(safe-area-inset-top))); display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: var(--sheet-shadow);
+}
+.sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 8px 4px 20px; }
+.sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 20px; padding-bottom: max(20px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; }
+.sheet.enter { animation: sheet-up .24s ease-out; }
+.sheet-back.enter { animation: fade-in .24s ease-out; }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheet.enter, .sheet-back.enter { animation: none; } }
