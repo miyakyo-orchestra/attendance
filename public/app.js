@@ -366,13 +366,13 @@
     const current = state.view === 'entry' ? 'home' : state.view; // 出欠の入力は練習日のタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
-  /** 上の帯。right は右に置くもの（氏名のメニュー） */
-  function top(right) {
-    return `<header class="top"><span class="brand">宮教オケ 出欠</span>${right || ''}</header>`;
+  /** 上の帯。right は右に置くもの（氏名のメニュー）、left は左の名前の代わりに置くもの */
+  function top(right, left) {
+    return `<header class="top">${left || '<span class="brand">宮教オケ 出欠</span>'}${right || ''}</header>`;
   }
   /** ログインのある画面の外枠（上の帯・中身・下のタブ） */
-  function page(body) {
-    return top(whoMenu()) + `<main>${body}</main>` + tabs();
+  function page(body, left) {
+    return top(whoMenu(), left) + `<main>${body}</main>` + tabs();
   }
   function whoMenu() {
     if (!state.me) return '';
@@ -465,14 +465,14 @@
   // ---------------- 練習日（ホーム） ----------------
   function viewHome() {
     const list = state.homeView === 'list';
+    // カレンダーの下の予定が見えるよう、切り替えは上の帯に置く
     return page(`
-      <div class="seg" role="group" aria-label="表示">
-        <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
-        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
-      </div>
       ${messages()}
       ${list ? dayList() : monthView() + agenda()}
-    `);
+    `, `<div class="seg top-seg" role="group" aria-label="表示">
+        <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
+        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
+      </div>`);
   }
 
   /** 練習日のリスト。次の練習（同じ日に二つあれば両方）を大きく出し、その先は月ごとに区切る */
