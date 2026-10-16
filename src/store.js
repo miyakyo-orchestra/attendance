@@ -4,7 +4,7 @@
  * 画面からの呼び出し（POST /api）をここで受けて、確かめてから読み書きする。
  * - データベースの操作は db.exec(SQL, ...値) → 行の配列、db.txn(関数) → 1つの取引にまとめる、の2つだけを使う。
  *   Cloudflare では Durable Object の ctx.storage.sql、テストでは Node の node:sqlite をこの形に合わせて渡す。
- * - 欠席理由は、本人・役職・管理者にだけ返す。返さない相手への応答には、理由の項目そのものを入れない。
+ * - 欠席理由は、本人・パートリーダー・管理者にだけ返す。返さない相手への応答には、理由の項目そのものを入れない。
  * - 合言葉・暗証番号・管理用パスワードの照合は時間のかかる計算（待ちが入る）なので先に済ませ、
  *   そのあとの読み書きは待たずに一気に行う（途中で別の呼び出しが割り込まない）。
  */
@@ -30,9 +30,9 @@ export const PARTS = [
 // パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
 const GROUPS = ['strings', 'winds'];
 
-// 役割: member（団員）・officer（役職。欠席理由を読め、練習日を登録できる）・admin（管理者）
+// 役割: member（団員）・officer（パートリーダー。欠席理由を読め、練習日を登録できる）・admin（管理者）
 export const ROLES = ['member', 'officer', 'admin'];
-/** 役職か管理者か（欠席理由を読め、練習日を登録できる） */
+/** パートリーダーか管理者か（欠席理由を読め、練習日を登録できる） */
 function isOfficer(role) { return role === 'officer' || role === 'admin'; }
 
 export const LIMITS = {
@@ -304,7 +304,7 @@ const ALLOWED = {
 };
 const DENIED = {
   member: '団員としてログインしてください。',
-  officer: '役職と管理者だけが使えます。',
+  officer: 'パートリーダーと管理者だけが使えます。',
   admin: '管理者だけが使えます。',
 };
 
@@ -494,7 +494,7 @@ const PRIVATE = {
     return { ok: true, passkeys: this.passkeyList(who.member.id) };
   }],
 
-  /** 練習日ごとの、パート別の出欠。欠席理由は本人と、役職・管理者にだけ入れる */
+  /** 練習日ごとの、パート別の出欠。欠席理由は本人と、パートリーダー・管理者にだけ入れる */
   roster: ['any', function (p, who) {
     const day = this.db.exec('SELECT id, date, kind, st, en, note FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
     if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
@@ -512,7 +512,7 @@ const PRIVATE = {
   }],
 
   // ---------------- 管理者 ----------------
-  /** 管理画面に出すもの。役職には練習日だけを返す */
+  /** 管理画面に出すもの。パートリーダーには練習日だけを返す */
   adminData: ['officer', function (p, who) {
     if (who.role !== 'admin') return { ok: true, days: this.listDays() };
     const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
