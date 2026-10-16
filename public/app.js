@@ -63,7 +63,7 @@
     month: '', // 練習日のカレンダーの月
     calDate: '', // カレンダーで選んでいる日
     showPast: false,
-    adminShowPast: false, // 管理の練習日で過ぎた日を開いているか
+    adminMonth: '', // 管理の練習日で見ている月
     flash: '',
     error: '',
     busy: false,
@@ -799,30 +799,25 @@
 
   // 管理: 練習日（パートリーダーも使える）
   function adminDays(a) {
-    // これからの日を近い順に月ごとに並べ、過ぎた日は下のボタンで開く
+    // 一月ずつ出し、左右の矢印かなぞりで前後の月に替える。はじめは今月
+    const ym = state.adminMonth || monthOf(state.today);
+    const [y, m] = ym.split('-').map(Number);
     const up = a.days.filter((d) => d.date >= state.today);
-    const past = a.days.filter((d) => d.date < state.today).reverse();
+    const ds = a.days.filter((d) => monthOf(d.date) === ym);
+    const away = ym !== monthOf(state.today);
     return `<section class="card">
         <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
       </section>
-      ${up.length ? adminMonths(up) : '<div class="empty">これからの練習日はありません</div>'}
-      ${past.length ? `<button class="link center" data-act="toggle-admin-past" aria-expanded="${state.adminShowPast}">過去の練習日 ${past.length}日</button>` : ''}
-      ${state.adminShowPast ? adminMonths(past) : ''}
+      <div class="adm-month">
+        <div class="adm-month-head">
+          <h2 class="month-label">${y !== parseDate(state.today).y ? y + '年' : ''}${m}月 ${ds.length}件</h2>
+          ${away ? '<button class="mv-today" data-act="admin-this-month">今月</button>' : ''}
+          <button class="icon" data-act="admin-month" data-n="-1" aria-label="前の月">${ICON.back}</button>
+          <button class="icon" data-act="admin-month" data-n="1" aria-label="次の月">${ICON.next}</button>
+        </div>
+        <div class="adm-body">${ds.length ? `<section class="card">${ds.map(adminDayRow).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
+      </div>
       ${state.daySheet ? daySheet() : ''}`;
-  }
-  /** 管理の練習日を月ごとのカードに分ける */
-  function adminMonths(list) {
-    const year = parseDate(state.today).y;
-    const groups = [];
-    for (const d of list) {
-      const ym = monthOf(d.date);
-      if (!groups.length || groups[groups.length - 1][0] !== ym) groups.push([ym, []]);
-      groups[groups.length - 1][1].push(d);
-    }
-    return groups.map(([ym, ds]) => {
-      const [y, m] = ym.split('-').map(Number);
-      return `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月 ${ds.length}件</h2><section class="card">${ds.map(adminDayRow).join('')}</section></div>`;
-    }).join('');
   }
   function adminDayRow(d) {
     return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
@@ -1086,7 +1081,8 @@
       render();
     },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
-    'toggle-admin-past': () => { state.adminShowPast = !state.adminShowPast; render(); },
+    'admin-month': (el) => { state.adminMonth = addMonth(state.adminMonth || monthOf(state.today), Number(el.dataset.n)); render(); },
+    'admin-this-month': () => { state.adminMonth = monthOf(state.today); render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
     'cal-today': () => { state.month = monthOf(state.today); state.calDate = state.today; render(); },
     'month': (el) => {
@@ -1299,9 +1295,9 @@
       });
     }
   });
-  // カレンダーは左右になぞって月を替える。なぞるあいだ日付のマスが指についてきて、離すと前後の月のボタンを押したのと同じに動く。
+  // カレンダーと管理の練習日は左右になぞって月を替える。なぞるあいだ日付のマスが指についてきて、離すと前後の月のボタンを押したのと同じに動く。
   // 画面の端から始めたなぞりは iPhone の戻る操作に任せ、縦に動かしたときはふつうに縦へ流す
-  const SWIPE_CALS = '.mv, .cal';
+  const SWIPE_CALS = '.mv, .cal, .adm-month';
   const EDGE = 24; // 画面の左右の端からこの幅のなぞりは扱わない
   let swipe = null;
   app.addEventListener('touchstart', (ev) => {
@@ -1309,7 +1305,7 @@
     const t = ev.touches[0];
     swipe = null;
     if (!cal || ev.touches.length > 1 || t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) return;
-    swipe = { cal, grid: cal.querySelector('.mv-grid, .cal-grid'), x: t.clientX, y: t.clientY, dx: 0, dir: '' };
+    swipe = { cal, grid: cal.querySelector('.mv-grid, .cal-grid, .adm-body'), x: t.clientX, y: t.clientY, dx: 0, dir: '' };
   }, { passive: true });
   app.addEventListener('touchmove', (ev) => {
     if (!swipe || !swipe.grid) return;
@@ -1332,10 +1328,10 @@
       s.grid.style.transform = '';
       return;
     }
-    const kind = s.cal.classList.contains('mv') ? '.mv' : s.cal.classList.contains('pick') ? '.cal.pick' : '.card.cal';
+    const kind = s.cal.classList.contains('mv') ? '.mv' : s.cal.classList.contains('adm-month') ? '.adm-month' : s.cal.classList.contains('pick') ? '.cal.pick' : '.card.cal';
     btn.click();
     // 描き直した新しい月のマスを、なぞった向きの外側から滑り込ませる
-    const grid = app.querySelector(`${kind} .mv-grid, ${kind} .cal-grid`);
+    const grid = app.querySelector(`${kind} .mv-grid, ${kind} .cal-grid, ${kind} .adm-body`);
     if (!grid || REDUCE_MOTION) return;
     grid.style.transition = 'none';
     grid.style.transform = `translateX(${n * 40}%)`;

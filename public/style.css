@@ -171,6 +171,11 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 /* 月ごとの区切り */
 .month-group { display: flex; flex-direction: column; gap: 8px; }
 .month-label { margin: 0; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--sub); }
+/* 管理の練習日: 一月ずつ。左右になぞると前後の月 */
+.adm-month { display: flex; flex-direction: column; gap: 8px; overflow-x: clip; }
+.adm-month-head { display: flex; align-items: center; gap: 2px; }
+.adm-month-head .month-label { margin-right: auto; font-size: 17px; font-weight: 700; color: var(--ink); }
+.adm-body { touch-action: pan-y; }
 .pill { flex: none; font-size: 13px; font-weight: 500; padding: 4px 10px; border-radius: 999px; background: var(--muted); color: var(--sub); }
 .pill.attend { background: var(--blue); color: var(--on-accent); }
 .pill.absent { background: var(--amber-soft); color: var(--amber-ink); }
