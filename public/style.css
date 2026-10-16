@@ -8,8 +8,8 @@
   --grey: #9aa1ac; --on-accent: #ffffff; --danger: #c0352b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   --scrim: rgba(0, 0, 0, .32); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .12);
-  /* 予定の色（出欠の青・橙と混ざらない色）。part は個人・パートなど、tutti は合奏、stage は本番・リハーサルなど */
-  --part: #2f8a4c; --part-soft: #e2f3e7; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #7247c9; --stage-soft: #ece5fb;
+  /* 予定の色。団で配っていた Excel の月のカレンダーにそろえる。part は個人・パートなど（黄）、tutti は合奏（赤）、stage は本番・リハーサルなど（青紫。出席の青より紫に寄せる） */
+  --part: #9a7400; --part-soft: #fbf0c9; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #5a5fc8; --stage-soft: #e3e6fa;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -22,7 +22,7 @@
     --grey: #767d89; --on-accent: #0f1115; --danger: #f08a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     --scrim: rgba(0, 0, 0, .55); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .5);
-    --part: #6fcf8f; --part-soft: #1c3324; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #b49af2; --stage-soft: #2b2342;
+    --part: #e6c457; --part-soft: #352c12; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #a4a8f5; --stage-soft: #252845;
     color-scheme: dark;
   }
 }
