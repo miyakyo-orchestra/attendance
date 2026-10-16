@@ -1243,6 +1243,55 @@
       });
     }
   });
+  // カレンダーは左右になぞって月を替える。なぞるあいだ日付のマスが指についてきて、離すと前後の月のボタンを押したのと同じに動く。
+  // 画面の端から始めたなぞりは iPhone の戻る操作に任せ、縦に動かしたときはふつうに縦へ流す
+  const SWIPE_CALS = '.mv, .cal';
+  const EDGE = 24; // 画面の左右の端からこの幅のなぞりは扱わない
+  let swipe = null;
+  app.addEventListener('touchstart', (ev) => {
+    const cal = ev.target.closest(SWIPE_CALS);
+    const t = ev.touches[0];
+    swipe = null;
+    if (!cal || ev.touches.length > 1 || t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) return;
+    swipe = { cal, grid: cal.querySelector('.mv-grid, .cal-grid'), x: t.clientX, y: t.clientY, dx: 0, dir: '' };
+  }, { passive: true });
+  app.addEventListener('touchmove', (ev) => {
+    if (!swipe || !swipe.grid) return;
+    const t = ev.touches[0];
+    const dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+    if (!swipe.dir && Math.hypot(dx, dy) > 10) swipe.dir = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (swipe.dir !== 'x') return;
+    swipe.dx = dx;
+    swipe.grid.style.transition = 'none';
+    swipe.grid.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  function endSwipe() {
+    const s = swipe;
+    swipe = null;
+    if (!s || s.dir !== 'x') return;
+    const n = s.dx < 0 ? 1 : -1;
+    const btn = Math.abs(s.dx) > 50 && s.cal.querySelector(`.icon[data-n="${n}"]`);
+    if (!btn) { // 少ししか動かさなかったら元に戻す
+      s.grid.style.transition = 'transform .2s ease-out';
+      s.grid.style.transform = '';
+      return;
+    }
+    const kind = s.cal.classList.contains('mv') ? '.mv' : s.cal.classList.contains('pick') ? '.cal.pick' : '.card.cal';
+    btn.click();
+    // 描き直した新しい月のマスを、なぞった向きの外側から滑り込ませる
+    const grid = app.querySelector(`${kind} .mv-grid, ${kind} .cal-grid`);
+    if (!grid || REDUCE_MOTION) return;
+    grid.style.transition = 'none';
+    grid.style.transform = `translateX(${n * 40}%)`;
+    grid.style.opacity = '0';
+    grid.getBoundingClientRect();
+    grid.style.transition = 'transform .22s ease-out, opacity .22s ease-out';
+    grid.style.transform = '';
+    grid.style.opacity = '';
+  }
+  app.addEventListener('touchend', endSwipe);
+  app.addEventListener('touchcancel', () => { if (swipe && swipe.grid) { swipe.grid.style.transform = ''; } swipe = null; });
+
   // メニューの外を押したら閉じる
   document.addEventListener('click', (ev) => {
     const open = app.querySelector('details.who[open]');
