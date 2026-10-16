@@ -422,6 +422,11 @@ const PRIVATE = {
     if (!day || day.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
     if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
     const status = String(p.status || '');
+    // none は答えを取り消して未回答に戻す（リストの札を押し直したとき）
+    if (status === 'none') {
+      this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id);
+      return { ok: true, answer: { status: 'none', reason: '', at: '' } };
+    }
     if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
     const reason = status === 'absent' ? cleanText(p.reason, LIMITS.REASON) : '';
     const at = status === 'late' || status === 'early' ? String(p.at || '') : '';

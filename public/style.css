@@ -8,8 +8,8 @@
   --grey: #9aa1ac; --on-accent: #ffffff; --danger: #c0352b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   --scrim: rgba(0, 0, 0, .32); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .12);
-  /* 予定の色（出欠の青・橙と混ざらない色）。part は個人・パートなど、tutti は合奏、stage は本番・リハーサルなど */
-  --part: #2f8a4c; --part-soft: #e2f3e7; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #7247c9; --stage-soft: #ece5fb;
+  /* 予定の色。団で配っていた Excel の月のカレンダーにそろえる。part は個人・パートなど（黄）、tutti は合奏（赤）、stage は本番・リハーサルなど（青紫。出席の青より紫に寄せる） */
+  --part: #9a7400; --part-soft: #fbf0c9; --tutti: #c23a5c; --tutti-soft: #fbe3e9; --stage: #5a5fc8; --stage-soft: #e3e6fa;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -22,7 +22,7 @@
     --grey: #767d89; --on-accent: #0f1115; --danger: #f08a80;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     --scrim: rgba(0, 0, 0, .55); --sheet-shadow: 0 -4px 24px rgba(0, 0, 0, .5);
-    --part: #6fcf8f; --part-soft: #1c3324; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #b49af2; --stage-soft: #2b2342;
+    --part: #e6c457; --part-soft: #352c12; --tutti: #f08aa3; --tutti-soft: #3b1f27; --stage: #a4a8f5; --stage-soft: #252845;
     color-scheme: dark;
   }
 }
@@ -140,10 +140,23 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .fold .inline { margin-top: 12px; }
 
 /* 練習日のリスト */
-.day {
-  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px;
-  background: none; border: none; text-align: left;
+.day { width: 100%; display: flex; align-items: center; }
+/* 行の本体（押すと出欠の入力）と右の札（押すとその場で答える）は別のボタン */
+.day-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 14px 4px 14px 16px;
+  background: none; border: none; color: inherit; text-align: left; font: inherit;
 }
+.day > .pill, .ag-row > .pill { margin-right: 16px; }
+.ans { flex: none; align-self: stretch; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 4px; }
+.pill-btn { display: flex; align-items: center; min-height: 44px; padding: 0; background: none; border: none; font: inherit; }
+/* 出席のチェック。未回答は枠、出席は出席の色で塗る */
+.ans-check, .ans-more { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: none; background: none; color: var(--sub); }
+.ans-check { box-shadow: inset 0 0 0 1.5px var(--line-strong, var(--sub)); transition: background-color .15s, color .15s, box-shadow .15s, transform .1s; }
+.ans-check.todo { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.ans-check.on { background: var(--blue); color: var(--on-accent); box-shadow: none; }
+.ans-check:active, .ans-more:active, .pill-btn:active .pill { transform: scale(.92); }
+.ans-check svg { stroke-width: 2.4; }
+.ans-more svg circle { fill: currentColor; stroke: none; }
 .day + .day { border-top: 1px solid var(--line); }
 .day .main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .day .ag-bar { margin-right: -2px; }
@@ -203,6 +216,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .title-date { font-size: 26px; font-weight: 700; margin: 0; }
 .title-meta { margin: 0; font-size: 14px; color: var(--sub); }
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.choices.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .choice { position: relative; }
 .choice input { position: absolute; opacity: 0; inset: 0; margin: 0; }
 .choice span {
@@ -378,6 +392,8 @@ main.auth h1 { font-size: 26px; }
 .agenda { display: flex; flex-direction: column; }
 .ag-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; min-height: 60px; border: none; background: none; color: var(--ink); text-align: left; }
 .ag-row + .ag-row { border-top: 1px solid var(--line); }
+.ag-row.has-pill { padding: 0; }
+.ag-row.has-pill .day-open { gap: 10px; padding: 12px 4px 12px 16px; min-height: 60px; }
 .ag-time { flex: none; width: 44px; display: flex; flex-direction: column; font-size: 13px; line-height: 1.35; }
 .ag-time b { font-weight: 500; }
 .ag-time span { color: var(--sub); }
@@ -424,3 +440,8 @@ body.sheet-open { overflow: hidden; }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sheet.enter, .sheet-back.enter { animation: none; } }
+/* ホームで開く、遅刻・早退・欠席のシート */
+.ans-sheet .sheet-head { align-items: flex-start; padding: 16px 8px 8px 20px; }
+.ans-sheet .sheet-head h2 { margin: 0; font-size: 18px; }
+.ans-sheet .sheet-head .title-meta { margin: 2px 0 0; }
+.ans-sheet .sheet-head .icon { margin-top: -6px; }
