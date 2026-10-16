@@ -100,15 +100,15 @@ test('暗証番号を5回間違えると10分止まる', async () => {
   assert.equal((await t.call('login', { name: '佐藤', pin: '2468' })).ok, true);
 });
 
-test('欠席理由は本人と役職・管理者にだけ返す', async () => {
+test('欠席理由は本人とパートリーダー・管理者にだけ返す', async () => {
   const t = await ready();
   const absent = await join(t, '欠席する人', 'Va');
   const other = await join(t, 'ほかの団員', 'Fl');
-  const officer = await join(t, '役職の人', 'Hr');
+  const officer = await join(t, 'パートリーダーの人', 'Hr');
   await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '体調不良' }, absent);
   await t.call('answer', { dayId: t.dayId, status: 'attend' }, other);
   const ids = (await t.call('adminData', {}, t.adminToken)).members;
-  const officerId = ids.find((m) => m.name === '役職の人').id;
+  const officerId = ids.find((m) => m.name === 'パートリーダーの人').id;
   assert.equal((await t.call('setRole', { id: officerId, role: 'officer' }, t.adminToken)).ok, true);
 
   const find = (r, name) => r.members.find((m) => m.name === name);
@@ -117,7 +117,7 @@ test('欠席理由は本人と役職・管理者にだけ返す', async () => {
   assert.equal(find(byOther, '欠席する人').status, 'absent');
   assert.equal('reason' in find(byOther, '欠席する人'), false);
   assert.equal(JSON.stringify(byOther).includes('体調不良'), false);
-  assert.equal(find(byOther, '役職の人').status, 'none');
+  assert.equal(find(byOther, 'パートリーダーの人').status, 'none');
 
   assert.equal(find(await t.call('roster', { dayId: t.dayId }, absent), '欠席する人').reason, '体調不良');
   assert.equal(find(await t.call('roster', { dayId: t.dayId }, officer), '欠席する人').reason, '体調不良');
@@ -397,9 +397,9 @@ test('遅刻と早退は時刻を付けて入れられ、時刻は誰にでも�
   assert.match(csv, /遅れる人,Tuba,欠席,,,/);
 });
 
-test('役職は練習日を登録できるが、団員の管理はできない', async () => {
+test('パートリーダーは練習日を登録できるが、団員の管理はできない', async () => {
   const t = await ready();
-  const o = await join(t, '役職の人', 'Fl');
+  const o = await join(t, 'パートリーダーの人', 'Fl');
   const id = (await t.call('home', {}, o)).me.id;
   await t.call('setRole', { id, role: 'officer' }, t.adminToken);
   const data = await t.call('adminData', {}, o);

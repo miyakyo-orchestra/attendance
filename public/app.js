@@ -21,7 +21,7 @@
   const TOKEN_KEY = 'attendance.token';
   const VIEW_KEY = 'attendance.homeView'; // 練習日をカレンダーとリストのどちらで見るか（端末ごとに覚える）
   const WEEKDAYS = '日月火水木金土';
-  const ROLE_LABEL = { member: '団員', officer: '役職', admin: '管理者' };
+  const ROLE_LABEL = { member: '団員', officer: 'パートリーダー', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
   const GROUP_LABEL = { strings: '弦', winds: '管打' };
   const KINDS = ['合奏', '個人／パート', '分奏', 'リハーサル', '演奏会', '本番', '授業', '休み']; // 練習日の種類の候補
@@ -356,7 +356,7 @@
     goHome();
   });
 
-  // 下のタブ。練習日・一覧・管理（役職と管理者）
+  // 下のタブ。練習日・一覧・管理（パートリーダーと管理者）
   function tabs() {
     if (!state.me) return '';
     const items = [];
@@ -596,7 +596,7 @@
         <div class="reason-box"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
             <label for="reason">欠席の理由 任意</label>
-            ${tip('理由を読める人', '理由を読めるのは本人と役職と管理者だけです。')}
+            ${tip('理由を読める人', '理由を読めるのは本人とパートリーダーと管理者だけです。')}
           </div>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
@@ -746,7 +746,7 @@
     const a = state.admin;
     if (!a) return page('<div class="empty">読み込み中</div>');
     const admin = isAdmin();
-    const tab = admin ? state.adminTab : 'days'; // 役職には練習日だけ
+    const tab = admin ? state.adminTab : 'days'; // パートリーダーには練習日だけ
     const body = { days: adminDays, members: adminMembers, parts: adminParts, records: adminRecords }[tab](a);
     return page(`
       <h1>管理</h1>
@@ -756,7 +756,7 @@
     `);
   }
 
-  // 管理: 練習日（役職も使える）
+  // 管理: 練習日（パートリーダーも使える）
   function adminDays(a) {
     const e = state.editDay || {};
     const days = a.days.slice().reverse();
