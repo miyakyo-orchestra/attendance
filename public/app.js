@@ -43,6 +43,8 @@
     cal: svg(CALENDAR, 20),
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
+    check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
+    more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
   };
 
   // ---------------- 画面の状態 ----------------
@@ -78,6 +80,7 @@
     adminTab: 'days', // 管理画面のタブ
     editDay: null,
     daySheet: '', // 開いている練習日のシート。add（足す）か edit（直す）
+    answerSheet: '', // ホームで開いている、遅刻・早退・欠席を答えるシートの練習日
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
@@ -235,7 +238,7 @@
   }, true);
   window.addEventListener('scroll', closeTip, { passive: true });
   window.addEventListener('resize', closeTip);
-  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; closeTip(); if (state.daySheet) { keepDraft(); closeSheet(); } });
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; closeTip(); if (state.daySheet) { keepDraft(); closeSheet(); } if (state.answerSheet) { state.answerSheet = ''; render(); } });
 
   // ---------------- 小さな道具 ----------------
   /** CSV をファイルとして保存させる。先頭の印（BOM）があると、Excel でも文字化けしない */
@@ -404,16 +407,18 @@
     const a = state.answers[d.id] || { status: 'none' };
     return `<span class="pill ${a.status}${!isPast && a.status === 'none' ? ' todo' : ''}">${esc(statusText(a))}</span>`;
   }
-  /** 行の右の札。これからの日は押せて、未回答なら出席に、出席なら未回答に戻す。遅刻・早退・欠席は出欠の入力を開く */
-  function pillButton(d, isPast) {
+  /** 行の右のボタン。チェックは押すだけで出席（もう一度押すと未回答）、隣のボタンは遅刻・早退・欠席のシートを開く。過ぎた日は札だけ */
+  function answerButtons(d, isPast) {
     if (isPast) return myPill(d, true);
-    const st = (state.answers[d.id] || { status: 'none' }).status;
-    const act = st === 'none' || st === 'attend' ? 'quick-attend' : 'open-day';
-    const label = st === 'none' ? `${dateLabel(d.date)}を出席にする` : st === 'attend' ? `${dateLabel(d.date)}の出席を取り消す` : `${dateLabel(d.date)}の出欠を直す`;
-    return `<button class="pill-btn" data-act="${act}" data-id="${esc(d.id)}" aria-label="${esc(label)}">${myPill(d, false)}</button>`;
+    const a = state.answers[d.id] || { status: 'none' };
+    const date = dateLabel(d.date);
+    const other = a.status === 'late' || a.status === 'early' || a.status === 'absent'
+      ? `<button class="pill-btn" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'の出欠を直す')}">${myPill(d, false)}</button>`
+      : `<button class="ans-more" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'を遅刻・早退・欠席にする')}">${ICON.more}</button>`;
+    const on = a.status === 'attend';
+    const check = `<button class="ans-check${on ? ' on' : ''}${a.status === 'none' ? ' todo' : ''}" data-act="quick-attend" data-id="${esc(d.id)}" aria-pressed="${on}" aria-label="${esc(date + 'に出席')}">${ICON.check}</button>`;
+    return `<span class="ans">${other}${check}</span>`;
   }
-  /** その日たちのうち、これからの日でまだ答えていない練習 */
-  function unanswered(days) { return days.filter((d) => !d.noentry && d.date >= state.today && !state.answers[d.id]); }
   /** 姓と名の欄（姓と名はスペースなしでつないで氏名にする） */
   function nameFields(me) {
     const v = (k) => (me ? ` value="${esc(me[k] || '')}"` : '');
@@ -487,6 +492,7 @@
     return page(`
       ${messages()}
       ${list ? dayList() : monthView() + agenda()}
+      ${state.answerSheet ? answerSheet() : ''}
     `, `<div class="seg top-seg" role="group" aria-label="表示">
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
         <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
@@ -509,9 +515,7 @@
       const flush = () => {
         if (!group.length) return;
         const [y, m] = cur.split('-').map(Number);
-        const todo = unanswered(upcoming.filter((d) => monthOf(d.date) === cur));
-        const bulk = isMember() && todo.length > 1 ? `<button class="link bulk" data-act="bulk-attend" data-month="${cur}">未回答を出席にする</button>` : '';
-        html += `<div class="month-group"><div class="month-head"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2>${bulk}</div><div class="card">${group.map((d) => dayRow(d, false)).join('')}</div></div>`;
+        html += `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月</h2><div class="card">${group.map((d) => dayRow(d, false)).join('')}</div></div>`;
         group = [];
       };
       for (const d of rest) {
@@ -531,7 +535,7 @@
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
       <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
-    </button>${isMember() ? pillButton(d, isPast) : ''}</div>`;
+    </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
   /** カレンダーで最初に選ぶ日。今日がその月なら今日、なければその月の最初の予定の日 */
@@ -585,7 +589,7 @@
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
       const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
-      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? pillButton(d, past) : ''}</div>`;
+      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
       <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
@@ -597,7 +601,6 @@
     if (!d) { state.view = 'home'; return viewHome(); }
     const a = state.answers[d.id] || { status: '', reason: '' };
     const past = d.date < state.today;
-    const dis = past ? ' disabled' : '';
     return page(`
       <div class="title-block">
         <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1 class="title-date">${esc(dateLabel(d.date))}</h1></div>
@@ -605,9 +608,16 @@
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
       ${messages()}
-      <form data-form="answer" class="stack">
-        <div class="choices" role="radiogroup" aria-label="出欠">
-          ${['attend', 'late', 'early', 'absent'].map((k) => `<label class="choice"><input type="radio" name="status" value="${k}"${a.status === k ? ' checked' : ''}${dis}><span class="${k}">${STATUS_LABEL[k]}</span></label>`).join('')}
+      ${answerForm(d, a, past, ['attend', 'late', 'early', 'absent'])}
+    `);
+  }
+
+  /** 出欠を答える欄。出欠の入力の画面と、ホームのシートで使う */
+  function answerForm(d, a, past, kinds) {
+    const dis = past ? ' disabled' : '';
+    return `<form data-form="answer" class="stack">
+        <div class="choices${kinds.length === 3 ? ' three' : ''}" role="radiogroup" aria-label="出欠">
+          ${kinds.map((k) => `<label class="choice"><input type="radio" name="status" value="${k}"${a.status === k ? ' checked' : ''}${dis}><span class="${k}">${STATUS_LABEL[k]}</span></label>`).join('')}
         </div>
         <div class="at-box"${a.status === 'late' || a.status === 'early' ? '' : ' hidden'}>
           <label class="field" for="at">時刻 任意</label>
@@ -621,8 +631,23 @@
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
         ${past ? '' : `<button class="cta" type="submit"${a.status && a.status !== 'attend' ? '' : ' hidden'}>送信する</button>`}
-      </form>
-    `);
+      </form>`;
+  }
+  /** ホームの上に下から開く、遅刻・早退・欠席を答えるシート */
+  function answerSheet() {
+    const d = state.days.find((x) => x.id === state.answerSheet);
+    if (!d) return '';
+    const a = state.answers[d.id] || { status: '', reason: '' };
+    const enter = sheetEnter;
+    sheetEnter = false;
+    return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-answer"></div>
+      <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
+        <div class="sheet-head">
+          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p></div>
+          <button class="icon" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
+        </div>
+        <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>
+      </section>`;
   }
 
   // ---------------- パート別の出欠（一覧） ----------------
@@ -1045,6 +1070,8 @@
     // 練習日（ホーム）
     'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
     // 札を押すと、待たずに出席（または未回答）にしてから裏で送る。失敗したら元に戻す
+    'open-answer': (el) => { state.answerSheet = el.dataset.id; state.error = ''; state.flash = ''; sheetEnter = true; render(); },
+    'close-answer': () => { state.answerSheet = ''; state.error = ''; render(); },
     'quick-attend': async (el) => {
       const id = el.dataset.id;
       const before = state.answers[id];
@@ -1057,18 +1084,6 @@
       if (before) state.answers[id] = before; else delete state.answers[id];
       check(r);
       render();
-    },
-    'bulk-attend': (el) => {
-      const ym = el.dataset.month;
-      const todo = unanswered(state.days.filter((d) => monthOf(d.date) === ym));
-      if (!todo.length) return;
-      if (!confirm(`${Number(ym.slice(5))}月の未回答${todo.length}日を出席にしますか`)) return;
-      run(async () => {
-        const r = await api('answerMany', { dayIds: todo.map((d) => d.id) });
-        if (!check(r)) return;
-        Object.assign(state.answers, r.answers);
-        state.flash = `${Object.keys(r.answers).length}日を出席にしました`;
-      });
     },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
     'toggle-admin-past': () => { state.adminShowPast = !state.adminShowPast; render(); },
@@ -1193,11 +1208,14 @@
     'login': (f) => run(() => signIn('login', f)),
     'admin-login': (f) => run(() => signIn('adminLogin', f)),
     'answer': (f) => run(async () => {
-      const d = state.days.find((x) => x.id === state.entryId);
-      const r = await api('answer', { dayId: state.entryId, status: f.status, reason: f.reason || '', at: f.at || '' });
+      const id = state.answerSheet || state.entryId;
+      const d = state.days.find((x) => x.id === id);
+      if (!f.status) { state.error = '出欠を選んでください。'; return; }
+      const r = await api('answer', { dayId: id, status: f.status, reason: f.reason || '', at: f.at || '' });
       if (!check(r)) return;
-      state.answers[state.entryId] = r.answer;
+      state.answers[id] = r.answer;
       state.flash = `${dateLabel(d.date)}の出欠を送信しました`;
+      state.answerSheet = '';
       state.view = 'home';
     }),
     'profile': (f) => run(async () => {

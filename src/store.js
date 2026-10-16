@@ -437,22 +437,6 @@ const PRIVATE = {
     return { ok: true, answer: { status, reason, at } };
   }],
 
-  /** まだ答えていないこれからの練習日を、まとめて出席にする。答えてある日はそのまま */
-  answerMany: ['member', function (p, who) {
-    const ids = Array.isArray(p.dayIds) ? p.dayIds.slice(0, 200).map(String) : [];
-    const today = this.today();
-    const stamp = this.stamp();
-    const answers = {};
-    for (const id of ids) {
-      const day = this.db.exec('SELECT * FROM days WHERE id = ?', id)[0];
-      if (!day || day.noentry || day.date < today) continue;
-      if (this.db.exec('SELECT 1 FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id).length) continue;
-      this.db.exec("INSERT INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, 'attend', '', '', ?)", day.id, who.member.id, stamp);
-      answers[day.id] = { status: 'attend', reason: '', at: '' };
-    }
-    return { ok: true, answers };
-  }],
-
   /** 自分の氏名・パートを直す */
   updateProfile: ['member', function (p, who) {
     const { name, sei, mei } = personName(p);

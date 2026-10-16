@@ -84,11 +84,6 @@ test('登録・ログイン・出欠の入力', async () => {
   // 未回答に戻す
   assert.equal((await t.call('answer', { dayId: t.dayId, status: 'none' }, token)).answer.status, 'none');
   assert.deepEqual((await t.call('home', {}, token)).answers, {});
-  // まとめて出席にする。答えてある日は変えない
-  assert.deepEqual((await t.call('answerMany', { dayIds: [t.dayId, 'nai'] }, token)).answers, { [t.dayId]: { status: 'attend', reason: '', at: '' } });
-  await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '実習' }, token);
-  assert.deepEqual((await t.call('answerMany', { dayIds: [t.dayId] }, token)).answers, {});
-  assert.equal((await t.call('home', {}, token)).answers[t.dayId].status, 'absent');
 
   // 別の端末からログイン
   const login = await t.call('login', { name: '宮教 太郎', pin: '1234' });
@@ -148,7 +143,6 @@ test('過ぎた練習日の出欠は変えられない', async () => {
   const past = await t.call('saveDay', { date: '2026-10-14' }, t.adminToken);
   assert.equal((await t.call('answer', { dayId: past.id, status: 'attend' }, token)).code, 'PAST');
   assert.equal((await t.call('answer', { dayId: past.id, status: 'none' }, token)).code, 'PAST');
-  assert.deepEqual((await t.call('answerMany', { dayIds: [past.id] }, token)).answers, {});
   assert.equal((await t.call('answer', { dayId: t.dayId, status: 'attend' }, token)).ok, true);
 });
 
