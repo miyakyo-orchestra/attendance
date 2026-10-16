@@ -37,7 +37,6 @@
     people: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4"/><path d="M18 14.8c2 .8 3.2 2.6 3.5 5.2"/>', 22),
     gear: svg('<path d="M4 7h10"/><path d="M18 7h2"/><circle cx="16" cy="7" r="2"/><path d="M4 17h4"/><path d="M12 17h8"/><circle cx="10" cy="17" r="2"/>', 22),
     down: svg('<path d="M6 9l6 6 6-6"/>', 18),
-    up: svg('<path d="M6 15l6-6 6 6"/>', 18),
     copy: svg('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>', 20),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>', 20),
     trash: svg('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/>', 20),
@@ -62,6 +61,7 @@
     month: '', // 練習日のカレンダーの月
     calDate: '', // カレンダーで選んでいる日
     showPast: false,
+    adminShowPast: false, // 管理の練習日で過ぎた日を開いているか
     flash: '',
     error: '',
     busy: false,
@@ -71,7 +71,6 @@
     rosterCache: {}, // 一度読んだ練習日の一覧。日付を押したらまずこれを出し、裏で読み直す
     rosterGroup: 'all',
     rosterReasons: true,
-    rosterOpen: {}, // パート別の一覧で、出席の人の名前を開いているパート
     rosterCal: false,
     rosterMonth: '',
     passkeys: null, // 自分のパスキーの一覧（設定の画面）
@@ -650,7 +649,7 @@
     const t = countOf(shown);
     const all = shown.length || 1;
     const showReasons = state.rosterReasons;
-    const order = { absent: 0, late: 1, early: 2, none: 3 };
+    const order = { attend: 0, late: 1, early: 2, absent: 3, none: 4 }; // 出席の人を先に並べる
     const sections = groupParts.map((pid) => {
       const ms = shown.filter((m) => m.part === pid);
       if (!ms.length) return '';
@@ -659,14 +658,10 @@
       if (c.late + c.early) bits.push('遅刻・早退 ' + (c.late + c.early));
       if (c.absent) bits.push('欠席 ' + c.absent);
       if (c.none) bits.push('未回答 ' + c.none);
-      const others = ms.filter((m) => m.status !== 'attend').sort((x, y) => order[x.status] - order[y.status]);
-      const attending = ms.filter((m) => m.status === 'attend');
-      const open = !!state.rosterOpen[pid];
+      const sorted = ms.slice().sort((x, y) => order[x.status] - order[y.status]);
       return `<section class="card"><div class="part-head"><h2>${esc(pid)}</h2><span>${bits.join('  ')}</span></div>
-          ${others.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
+          ${sorted.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
             ${showReasons && 'reason' in m ? `<p class="reason${m.reason ? '' : ' none'}">${m.reason ? esc(m.reason) : '理由の記入なし'}</p>` : ''}</div>`).join('')}
-          ${attending.length ? `<button class="attend-row" data-act="roster-open" data-part="${esc(pid)}" aria-expanded="${open}"><span>出席 ${attending.length}人</span>${open ? ICON.up : ICON.down}</button>
-            ${open ? `<div class="names">${attending.map((m) => `<span>${esc(m.name)}</span>`).join('')}</div>` : ''}` : ''}
         </section>`;
     }).join('');
     const groupLabel = { all: '全体', strings: '弦', winds: '管打' }[state.rosterGroup];
@@ -767,13 +762,34 @@
 
   // 管理: 練習日（パートリーダーも使える）
   function adminDays(a) {
-    const days = a.days.slice().reverse();
+    // これからの日を近い順に月ごとに並べ、過ぎた日は下のボタンで開く
+    const up = a.days.filter((d) => d.date >= state.today);
+    const past = a.days.filter((d) => d.date < state.today).reverse();
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>${a.days.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
-        ${days.length ? days.map((d) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : '<div class="empty">練習日はまだありません</div>'}
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
       </section>
+      ${up.length ? adminMonths(up) : '<div class="empty">これからの練習日はありません</div>'}
+      ${past.length ? `<button class="link center" data-act="toggle-admin-past" aria-expanded="${state.adminShowPast}">過去の練習日 ${past.length}日</button>` : ''}
+      ${state.adminShowPast ? adminMonths(past) : ''}
       ${state.daySheet ? daySheet() : ''}`;
+  }
+  /** 管理の練習日を月ごとのカードに分ける */
+  function adminMonths(list) {
+    const year = parseDate(state.today).y;
+    const groups = [];
+    for (const d of list) {
+      const ym = monthOf(d.date);
+      if (!groups.length || groups[groups.length - 1][0] !== ym) groups.push([ym, []]);
+      groups[groups.length - 1][1].push(d);
+    }
+    return groups.map(([ym, ds]) => {
+      const [y, m] = ym.split('-').map(Number);
+      return `<div class="month-group"><h2 class="month-label">${y !== year ? y + '年' : ''}${m}月 ${ds.length}件</h2><section class="card">${ds.map(adminDayRow).join('')}</section></div>`;
+    }).join('');
+  }
+  function adminDayRow(d) {
+    return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
@@ -1017,6 +1033,7 @@
     // 練習日（ホーム）
     'home-view': (el) => { state.homeView = el.dataset.v; try { localStorage.setItem(VIEW_KEY, el.dataset.v); } catch (e) { /* 残せなくても動く */ } state.flash = ''; render(); },
     'toggle-past': () => { state.showPast = !state.showPast; render(); },
+    'toggle-admin-past': () => { state.adminShowPast = !state.adminShowPast; render(); },
     'cal-date': (el) => { state.calDate = el.dataset.date; render(); },
     'cal-today': () => { state.month = monthOf(state.today); state.calDate = state.today; render(); },
     'month': (el) => {
@@ -1030,7 +1047,6 @@
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
     'roster-reasons': () => { state.rosterReasons = !state.rosterReasons; render(); },
     'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
-    'roster-open': (el) => { const k = el.dataset.part; state.rosterOpen[k] = !state.rosterOpen[k]; render(); },
 
     // 設定のパスキー
     'passkey-create': () => run(async () => {

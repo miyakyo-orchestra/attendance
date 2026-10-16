@@ -278,6 +278,8 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .list-row .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .list-row .main b { font-size: 15px; }
 .list-row .main small { font-size: 12px; color: var(--sub); overflow-wrap: anywhere; }
+.list-row > .ag-bar { margin: 2px 2px 2px -4px; }
+.list-row.past .ag-bar, .list-row.past .main b { opacity: .5; }
 .list-row .actions { display: flex; gap: 6px; flex: none; align-items: center; }
 .list-row .actions.tight { gap: 0; margin-right: -7px; }
 .list-row .select { height: 40px; width: auto; font-size: 14px; padding: 0 8px; }
@@ -312,12 +314,6 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .offer h1 { text-align: center; }
 .offer .link { align-self: center; }
 
-
-/* パート別: 出席の人をまとめた行 */
-.attend-row { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; min-height: 44px; background: none; border: none; border-top: 1px solid var(--line); font-size: 14px; color: var(--blue); font-weight: 500; }
-.part-head + .attend-row { border-top: none; }
-.names { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
-.names span { font-size: 14px; padding: 4px 10px; border-radius: 999px; background: var(--blue-soft); color: var(--ink); }
 
 /* 管理: 団員を選ぶ印 */
 .check { flex: none; width: 32px; height: 44px; display: flex; align-items: center; justify-content: center; margin-left: -8px; }
