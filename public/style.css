@@ -382,3 +382,8 @@ main.auth h1 { font-size: 26px; }
 .ag-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ag-title { font-size: 15px; font-weight: 700; }
 .ag-row .meta { font-size: 13px; color: var(--sub); }
+
+/* プライバシーポリシー */
+.doc-date { margin: -8px 0 0; font-size: 13px; color: var(--sub); }
+.card.doc { gap: 8px; }
+.doc p { margin: 0; font-size: 14px; line-height: 1.8; }

@@ -9,6 +9,7 @@
  * - roster   … パート別の出欠（下のタブの「一覧」）
  * - profile  … 設定（自分の氏名とパート、パスキー）
  * - admin    … 管理（練習日・団員・パート・記録）
+ * - privacy  … プライバシーポリシー（文は privacy.js）。ログインの前でも読める
  * 画面は render() で state から HTML を作り直して描く。ボタンは data-act、フォームは data-form の名前で、
  * 下の ACTIONS と FORMS の処理につながる。
  * サーバーとは POST /api だけでやりとりする（src/worker.js・src/store.js）。ログインの印は端末の localStorage に置く。
@@ -287,8 +288,8 @@
   }
 
   // ---------------- 画面の組み立て（共通） ----------------
-  const VIEWS = { auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin };
-  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile']; // 下のタブを出す画面
+  const VIEWS = { auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy };
+  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile', 'privacy']; // 下のタブを出す画面
 
   function render() {
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
@@ -329,18 +330,18 @@
     // 指でなぞって止めたときは、行き先を忘れる（描き直しで勝手に戻らないように）
     strip.ontouchstart = () => { chipTarget = null; };
   }
-  /** 練習日（管理用パスワードで入ったときは管理）に戻る */
+  /** 練習日（管理用パスワードで入ったときは管理。ログインの前ならログイン）に戻る */
   function goHome() {
-    state.view = isMember() ? 'home' : 'admin';
+    state.view = !state.me ? 'auth' : isMember() ? 'home' : 'admin';
     state.error = '';
     state.flash = '';
     render();
     window.scrollTo(0, 0);
   }
 
-  // 出欠の入力と設定の画面を開いたら、ブラウザの履歴を一つ積む。
+  // 出欠の入力・設定・プライバシーポリシーの画面を開いたら、ブラウザの履歴を一つ積む。
   // iPhone で画面の左端から右へなぞる「戻る」や、Android の戻るボタンで練習日に戻れるようにするため
-  const SUB_VIEWS = ['entry', 'profile'];
+  const SUB_VIEWS = ['entry', 'profile', 'privacy'];
   let subPushed = false;
   let ignorePop = false;
   function syncHistory() {
@@ -378,6 +379,7 @@
     const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
     return `<details class="who"><summary>${label}${ICON.down}</summary><div class="menu">
       ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
+      <button data-act="go-privacy">プライバシーポリシー</button>
       <button data-act="logout">ログアウト</button>
     </div></details>`;
   }
@@ -432,7 +434,8 @@
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
           <button class="cta" type="submit">登録する</button>
         </form>
-        <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>`;
+        <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>
+        <p class="auth-alt small"><button class="link" data-act="go-privacy">プライバシーポリシー</button></p>`;
     } else {
       body = `<h1>ログイン</h1>
         <form data-form="login" class="stack">
@@ -443,7 +446,7 @@
         <p class="auth-alt">はじめての方は<button class="link" data-act="auth-mode" data-mode="register">登録</button></p>
         <div class="auth-bottom">
           ${PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button>' : ''}
-          <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button></p>
+          <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button><button class="link" data-act="go-privacy">プライバシーポリシー</button></p>
         </div>`;
     }
     return top() + `<main class="auth">${messages()}${body}</main>`;
@@ -727,6 +730,17 @@
     `);
   }
 
+  // ---------------- プライバシーポリシー ----------------
+  function viewPrivacy() {
+    const doc = window.PRIVACY || { sections: [] };
+    const dates = [`${doc.ENACTED}制定`].concat((doc.REVISED || []).map((d) => `${d}改定`));
+    const body = `
+      <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1>プライバシーポリシー</h1></div>
+      <p class="doc-date">${dates.map(esc).join('、')}</p>
+      ${doc.sections.map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('')}`;
+    return state.me ? page(body) : top() + `<main>${body}</main>`;
+  }
+
   // ---------------- 管理 ----------------
   function viewAdmin() {
     const a = state.admin;
@@ -965,6 +979,7 @@
     // 画面の行き来
     'go-home': goHome,
     'go-roster': () => run(openRoster),
+    'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
     'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; await loadAdmin(); window.scrollTo(0, 0); }),
     'go-profile': () => run(async () => {
       state.view = 'profile'; state.flash = '';
@@ -1207,6 +1222,7 @@
     const info = await api('info');
     if (info.ok) { state.parts = info.parts; state.open = info.open; }
     if (memToken && await loadHome()) await openStart();
+    if (location.hash === '#privacy') state.view = 'privacy'; // URL の末尾に #privacy を付けると、プライバシーポリシーを開く
     render();
   })();
 })();
