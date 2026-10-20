@@ -11,56 +11,16 @@
 
 import { ALGS, bytesOf, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
 import { DUMMY_HASH, toB64url, randomId, sha256, hashSecret, verifySecret } from './secret.js';
+import { GROUPS, LIMITS, PARTS, ROLES, STATUSES, STATUS_LABEL, DAY_MS } from './limits.js';
+import { initSchema } from './schema.js';
+import {
+  SAME_NAME, TIME, bare, cleanText, count, csvCell, cut, isDate, jstTime, originOf, personName, tempPin, yearRange,
+} from './util.js';
 
-export const PARTS = [
-  { id: 'Vn', group: 'strings' },
-  { id: 'Va', group: 'strings' },
-  { id: 'Vc', group: 'strings' },
-  { id: 'Cb', group: 'strings' },
-  { id: 'Fl', group: 'winds' },
-  { id: 'Ob', group: 'winds' },
-  { id: 'Cl', group: 'winds' },
-  { id: 'Fg', group: 'winds' },
-  { id: 'Hr', group: 'winds' },
-  { id: 'Tp', group: 'winds' },
-  { id: 'Tb', group: 'winds' },
-  { id: 'Tuba', group: 'winds' },
-  { id: 'Perc', group: 'winds' },
-];
-// パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
-const GROUPS = ['strings', 'winds'];
+export { GROUPS, LIMITS, PARTS, ROLES, STATUS_LABEL, STATUSES } from './limits.js';
 
-// 役割: member（団員）・officer（パートリーダー。欠席理由を読め、練習日を登録できる）・admin（管理者）
-export const ROLES = ['member', 'officer', 'admin'];
 /** パートリーダーか管理者か（欠席理由を読め、練習日を登録できる） */
 function isOfficer(role) { return role === 'officer' || role === 'admin'; }
-
-export const LIMITS = {
-  NAME: 30,
-  KIND: 20,
-  NOTE: 100,
-  REASON: 200,
-  PASSPHRASE_MIN: 4,
-  PASSPHRASE_MAX: 64,
-  PIN: /^\d{4,8}$/,
-  PIN_FAILURES: 5, // 続けて間違えたら止める回数
-  TEMP_PIN_DIGITS: 6, // 暗証番号を再設定したときの仮の番号の桁数
-  GATE_FAILURES: 10, // 合言葉・管理用パスワードを、同じ接続元から続けて間違えたら止める回数
-  LOCK_SECONDS: 600,
-  SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
-  DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
-  PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tuba など）
-  PART_COUNT: 30,
-  PASSKEYS: 10, // 一人が作れるパスキーの数
-  CHALLENGE_SECONDS: 300, // パスキーの操作を始めてから終えるまでの時間
-};
-
-// 出欠: attend（出席）・late（遅刻）・early（早退）・absent（欠席）。遅刻と早退は時刻（at）を書ける
-const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席' };
-const STATUSES = Object.keys(STATUS_LABEL);
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-const DAY_MS = 86400000;
 
 export class Store {
   /**
@@ -76,54 +36,7 @@ export class Store {
   }
 
   /** 表を作り、前の形のデータを今の形に直す。何度呼んでもよい */
-  init() {
-    const x = (q) => this.db.exec(q);
-    const hasColumn = (table, col) => this.db.exec(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`, col).length > 0;
-    x(`CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, name TEXT NOT NULL, part TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member', pin TEXT NOT NULL, created_at TEXT NOT NULL,
-      failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0)`);
-    x('CREATE UNIQUE INDEX IF NOT EXISTS members_name ON members (name)');
-    x(`CREATE TABLE IF NOT EXISTS days (id TEXT PRIMARY KEY, date TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '',
-      st TEXT NOT NULL DEFAULT '', en TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '')`);
-    x('CREATE INDEX IF NOT EXISTS days_date ON days (date)');
-    // 出欠をとらない予定（授業・祝日など。配るカレンダーにだけ載せる）は noentry = 1（2026-10-15 から）
-    if (!hasColumn('days', 'noentry')) {
-      x('ALTER TABLE days ADD COLUMN noentry INTEGER NOT NULL DEFAULT 0');
-    }
-    x(`CREATE TABLE IF NOT EXISTS answers (day_id TEXT NOT NULL, member_id TEXT NOT NULL, status TEXT NOT NULL,
-      reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id))`);
-    if (!hasColumn('answers', 'at')) {
-      x("ALTER TABLE answers ADD COLUMN at TEXT NOT NULL DEFAULT ''"); // 遅刻・早退の時刻（2026-10-15 から）
-    }
-    // 2026-10-15 から姓と名を分けて持つ。氏名（name）は姓と名をスペースなしでつないだもの
-    if (!hasColumn('members', 'sei')) {
-      x("ALTER TABLE members ADD COLUMN sei TEXT NOT NULL DEFAULT ''");
-      x("ALTER TABLE members ADD COLUMN mei TEXT NOT NULL DEFAULT ''");
-      // 前に登録した人は、氏名の中のスペースで姓と名に分ける。スペースがなければ全部を姓に入れる（設定で直せる）
-      for (const m of this.db.exec('SELECT id, name FROM members')) {
-        const [sei, ...rest] = m.name.split(/[\s　]+/).filter(Boolean);
-        const mei = rest.join('');
-        const name = (sei || '') + mei;
-        const clash = this.db.exec('SELECT 1 FROM members WHERE name = ? AND id <> ?', name, m.id).length;
-        this.db.exec('UPDATE members SET sei = ?, mei = ?, name = ? WHERE id = ?', sei || m.name, mei, clash ? m.name : name, m.id);
-      }
-    }
-    // ログインの印。token は元に戻せない形（SHA-256）で置く。member_id が空なら管理用パスワードでのログイン
-    x(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, member_id TEXT NOT NULL DEFAULT '',
-      created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
-    // パスキー。id は認証器が決める番号（base64url）、jwk は公開鍵、alg は署名の方式
-    x(`CREATE TABLE IF NOT EXISTS passkeys (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, jwk TEXT NOT NULL,
-      alg INTEGER NOT NULL, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`);
-    x('CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys (member_id)');
-    // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
-    x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
-    // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す
-    // （あとで管理画面から Vn1 を足して使っても、起きるたびに戻さないよう、済んだ印を kv に残す）
-    if (!this.db.exec("SELECT 1 FROM kv WHERE k = 'migrated:vn'").length) {
-      x("UPDATE members SET part = 'Vn' WHERE part IN ('Vn1', 'Vn2')");
-      x("INSERT OR REPLACE INTO kv (k, v, exp) VALUES ('migrated:vn', '1', 0)");
-    }
-  }
+  init() { initSchema(this.db); }
 
   // ---------------- 小さな値 ----------------
   kget(k) {
@@ -713,10 +626,6 @@ const PRIVATE = {
 };
 
 // ---------------- 小さな道具 ----------------
-/** 年度（y年4月1日から翌年3月31日まで） */
-function yearRange(y) { return [`${y}-04-01`, `${y + 1}-03-31`]; }
-/** 練習日の日付が正しいか */
-function isDate(d) { return DATE.test(d) && !isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d; }
 /** 練習日の種類・時刻・メモを確かめてそろえる。誤りがあれば { error } */
 function dayFields(p) {
   const st = String(p.st || '');
@@ -729,51 +638,6 @@ function dayFields(p) {
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
 }
-/** 再設定のときの仮の暗証番号（数字だけ） */
-function tempPin() {
-  const r = crypto.getRandomValues(new Uint32Array(LIMITS.TEMP_PIN_DIGITS));
-  return Array.from(r, (n) => n % 10).join('');
-}
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
 
-/**
- * 姓と名から氏名を作る。姓・名の中のスペースは除き、氏名は姓と名をスペースなしでつなぐ（例: 宮教太郎）。
- * 姓と名のどちらかが空なら name を空で返す
- */
-function personName(p) {
-  const sei = cut(bare(String(p.sei || '')), LIMITS.NAME);
-  const mei = cut(bare(String(p.mei || '')), LIMITS.NAME);
-  if (!sei || !mei) return { name: '', sei, mei };
-  return { name: sei + mei, sei, mei }; // 氏名は切らない（姓と名がそれぞれ30文字までなので、60文字まで）
-}
-/** 氏名をスペース抜きで比べる（前の登録で残ったスペースがあっても同じ人として扱う） */
-const SAME_NAME = "REPLACE(REPLACE(name, '　', ''), ' ', '') = ?";
-function bare(name) { return name.replace(/[\s　]+/g, ''); }
-function cleanText(v, max) {
-  // 制御文字を除く（改行とタブは残す）
-  return cut(String(v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim(), max);
-}
-/**
- * 文字数は見た目の1文字を1と数える（絵文字や、組み合わせてできる文字も1文字）。
- * 長さ（length）で数えたり切ったりすると、絵文字の途中で切れて別の文字（�）に化けるため
- */
-const SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('ja', { granularity: 'grapheme' }) : null;
-function chars(s) { return SEGMENTER ? Array.from(SEGMENTER.segment(s), (x) => x.segment) : Array.from(s); }
-function count(s) { return chars(s).length; }
-/** max 文字までにする */
-function cut(s, max) { const c = chars(s); return c.length > max ? c.slice(0, max).join('') : s; }
-/** 記録の日時（ISO の形）を、CSV に出す日本時間の 2026-10-20 14:20:48 の形に */
-function jstTime(iso) {
-  const t = Date.parse(iso || '');
-  return isNaN(t) ? '' : new Date(t + 9 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-}
-/** サイトの起点（https://example.org）。末尾の / などがあってもそろえる。正しくなければ空 */
-export function originOf(v) {
-  try { return new URL(String(v || '').trim()).origin; } catch (e) { return ''; }
-}
-function csvCell(v) {
-  let s = String(v == null ? '' : v);
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // 表計算ソフトで式として動かないように
-  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
