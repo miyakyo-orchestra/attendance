@@ -418,6 +418,7 @@ main.auth h1 { font-size: 26px; }
 .part-head .head-end .ghost.icon { width: 36px; min-height: 36px; height: 36px; }
 body.sheet-open { overflow: hidden; }
 .sheet-back { position: fixed; inset: 0; z-index: 30; background: var(--scrim); }
+.sheet:focus { outline: none; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-width: 430px; margin: 0 auto;
   max-height: calc(100dvh - max(24px, env(safe-area-inset-top))); display: flex; flex-direction: column;

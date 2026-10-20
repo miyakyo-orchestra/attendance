@@ -7,9 +7,15 @@
  * - 使える鍵は ES256（-7。iPhone・Android・Windows・Mac のパスキーはほぼこれ）と RS256（-257）。
  */
 
-import { toB64url } from './secret.js';
+import { fromB64url, toB64url } from './secret.js';
 
 export const ALGS = [-7, -257];
+
+/** ブラウザから届いた base64url の値をバイト列に。形が正しくなければ、パスキーの誤りとして扱う */
+export function bytesOf(s) {
+  if (typeof s !== 'string') throw bad();
+  try { return fromB64url(s); } catch (e) { throw bad(); }
+}
 
 /** clientDataJSON を読み、種類・チャレンジ・呼び出し元のサイトを確かめる。チャレンジを返す */
 export function readClientData(bytes, type, origin) {
@@ -52,14 +58,18 @@ export async function verifySignature(jwk, alg, authData, clientDataBytes, signa
   const data = new Uint8Array(authData.length + 32);
   data.set(authData, 0);
   data.set(clientHash, authData.length);
-  if (alg === -7) {
-    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    const raw = derToRaw(signature);
-    return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, raw, data);
-  }
-  if (alg === -257) {
-    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-    return crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
+  try {
+    if (alg === -7) {
+      const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+      return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, derToRaw(signature), data);
+    }
+    if (alg === -257) {
+      const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+      return await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
+    }
+  } catch (e) {
+    if (e && e.passkey) throw e;
+    throw bad(); // 鍵や署名の形が崩れていれば、通さない
   }
   return false;
 }
@@ -72,10 +82,11 @@ function coseToJwk(m) {
   if (!(m instanceof Map)) throw bad();
   const kty = m.get(1);
   const alg = m.get(3);
-  if (kty === 2 && alg === -7 && m.get(-1) === 1) {
+  const isBytes = (v) => v instanceof Uint8Array && v.length > 0;
+  if (kty === 2 && alg === -7 && m.get(-1) === 1 && isBytes(m.get(-2)) && isBytes(m.get(-3))) {
     return { alg, jwk: { kty: 'EC', crv: 'P-256', x: toB64url(m.get(-2)), y: toB64url(m.get(-3)), ext: true } };
   }
-  if (kty === 3 && alg === -257) {
+  if (kty === 3 && alg === -257 && isBytes(m.get(-1)) && isBytes(m.get(-2))) {
     return { alg, jwk: { kty: 'RSA', n: toB64url(m.get(-1)), e: toB64url(m.get(-2)), alg: 'RS256', ext: true } };
   }
   throw bad();

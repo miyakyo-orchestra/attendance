@@ -9,8 +9,8 @@
  *   そのあとの読み書きは待たずに一気に行う（途中で別の呼び出しが割り込まない）。
  */
 
-import { ALGS, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
-import { DUMMY_HASH, fromB64url, toB64url, randomId, sha256, hashSecret, verifySecret } from './secret.js';
+import { ALGS, bytesOf, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
+import { DUMMY_HASH, toB64url, randomId, sha256, hashSecret, verifySecret } from './secret.js';
 
 export const PARTS = [
   { id: 'Vn', group: 'strings' },
@@ -49,7 +49,7 @@ export const LIMITS = {
   LOCK_SECONDS: 600,
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
-  PART_ID: /^[A-Za-z0-9.]{1,8}$/, // パートの名前（Vn・Tuba など）
+  PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tuba など）
   PART_COUNT: 30,
   PASSKEYS: 10, // 一人が作れるパスキーの数
   CHALLENGE_SECONDS: 300, // パスキーの操作を始めてから終えるまでの時間
@@ -117,8 +117,12 @@ export class Store {
     x('CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys (member_id)');
     // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
     x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
-    // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人も Vn に直す
-    x("UPDATE members SET part = 'Vn' WHERE part IN ('Vn1', 'Vn2')");
+    // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す
+    // （あとで管理画面から Vn1 を足して使っても、起きるたびに戻さないよう、済んだ印を kv に残す）
+    if (!this.db.exec("SELECT 1 FROM kv WHERE k = 'migrated:vn'").length) {
+      x("UPDATE members SET part = 'Vn' WHERE part IN ('Vn1', 'Vn2')");
+      x("INSERT OR REPLACE INTO kv (k, v, exp) VALUES ('migrated:vn', '1', 0)");
+    }
   }
 
   // ---------------- 小さな値 ----------------
@@ -191,7 +195,8 @@ export class Store {
     const stored = this.kget('passphrase');
     if (!stored) throw userError('まだ登録を受け付けていません。管理者に連絡してください。', 'CLOSED');
     this.checkGate(ip);
-    const ok = await verifySecret(String(input || ''), stored);
+    const ok = await verifySecret(String(input || '').trim(), stored); // 設定のときと同じく前後の空白は除く
+    this.checkGate(ip); // 待つあいだに同じ接続元の誤りが重なっていれば、結果を返さず止める
     if (!ok) { this.gateFailed(ip); throw userError('合言葉が違います。', 'WRONG_PASSPHRASE'); }
     this.gatePassed(ip);
   }
@@ -235,10 +240,8 @@ export class Store {
 
   /** パスキーの相手のサイト（ALLOWED_ORIGIN）と、その名前（rpId） */
   site() {
-    const origin = String(this.env.ALLOWED_ORIGIN || '').trim();
-    let rpId = '';
-    try { rpId = new URL(origin).hostname; } catch (e) { /* 設定がなければパスキーは使えない */ }
-    return { origin, rpId };
+    const origin = originOf(this.env.ALLOWED_ORIGIN);
+    return { origin, rpId: origin ? new URL(origin).hostname : '' }; // 設定がなければパスキーは使えない
   }
   /** パスキーの操作のためのチャレンジ（1回だけ使える乱数）を作る。what は使い道 */
   newChallenge(what) {
@@ -334,15 +337,19 @@ const PUBLIC = {
 
   async login(p, c) {
     // ログインは氏名を一つの欄で受ける。スペースの有無は問わない（姓と名で送られても受ける）
-    const name = p.name !== undefined ? bare(String(p.name)).slice(0, LIMITS.NAME) : personName(p).name;
+    const name = p.name !== undefined ? cut(bare(String(p.name)), LIMITS.NAME * 2) : personName(p).name;
     const pin = String(p.pin || '');
     if (!name || !pin) return fail('氏名と暗証番号を入れてください。');
     // 合言葉は登録のときだけ。ログインは氏名と暗証番号で、同じ接続元からの誤りが続けば止める
     this.checkGate(c.ip);
-    const m = this.db.exec(`SELECT * FROM members WHERE ${SAME_NAME}`, bare(name))[0];
+    const found = this.db.exec(`SELECT * FROM members WHERE ${SAME_NAME}`, bare(name))[0];
     // 登録がない氏名でも、暗証番号の計算は同じだけ行う（登録の有無を、かかる時間から知られないため）
-    const ok = await verifySecret(pin, m ? m.pin : DUMMY_HASH);
-    if (!m) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
+    const ok = await verifySecret(pin, found ? found.pin : DUMMY_HASH);
+    // 照合を待つあいだにほかの呼び出しが進んでいることがあるので、誤りの回数と団員の行を読み直してから決める
+    // （同時にたくさん送って回数の数え漏れを狙うことや、番号を変えた直後に古い番号で入ることを防ぐ）
+    this.checkGate(c.ip);
+    const m = found && this.member(found.id);
+    if (!m || m.pin !== found.pin) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
     if (m.locked_until > this.now()) return fail('暗証番号の誤りが続いたため、しばらくログインできません。10分ほどあけてください。', 'LOCKED');
     if (!ok) {
       this.gateFailed(c.ip);
@@ -369,14 +376,14 @@ const PUBLIC = {
     const { origin, rpId } = this.site();
     const failed = () => { this.gateFailed(c.ip); return fail('パスキーでログインできませんでした。', 'PASSKEY_FAILED'); };
     try {
-      const clientData = fromB64url(p.clientDataJSON);
-      const authData = fromB64url(p.authenticatorData);
+      const clientData = bytesOf(p.clientDataJSON);
+      const authData = bytesOf(p.authenticatorData);
       const challenge = readClientData(clientData, 'webauthn.get', origin);
       if (!this.useChallenge(challenge, 'login')) return failed();
       await readAuthData(authData, rpId, false);
       const key = this.db.exec('SELECT * FROM passkeys WHERE id = ?', String(p.id || ''))[0];
       if (!key) return fail('このパスキーは登録されていません。暗証番号でログインしてください。', 'PASSKEY_UNKNOWN');
-      const ok = await verifySignature(JSON.parse(key.jwk), key.alg, authData, clientData, fromB64url(p.signature));
+      const ok = await verifySignature(JSON.parse(key.jwk), key.alg, authData, clientData, bytesOf(p.signature));
       if (!ok) return failed();
       const m = this.member(key.member_id);
       if (!m) return failed();
@@ -396,6 +403,7 @@ const PUBLIC = {
     this.checkGate(c.ip);
     const input = String(p.password || '');
     const ok = await sha256(input) === await sha256(pw); // 長さや中身で比べる時間が変わらないよう、ハッシュどうしで比べる
+    this.checkGate(c.ip); // 待つあいだに同じ接続元の誤りが重なっていれば、結果を返さず止める
     if (!ok) { this.gateFailed(c.ip); return fail('管理用パスワードが違います。', 'WRONG_PASSWORD'); }
     this.gatePassed(c.ip);
     return this.signIn(null);
@@ -504,10 +512,10 @@ const PRIVATE = {
     const failed = () => fail('パスキーを登録できませんでした。', 'PASSKEY_FAILED');
     let key;
     try {
-      const clientData = fromB64url(p.clientDataJSON);
+      const clientData = bytesOf(p.clientDataJSON);
       const challenge = readClientData(clientData, 'webauthn.create', origin);
       if (!this.useChallenge(challenge, 'reg:' + m.id)) return failed();
-      key = await readAuthData(authDataOf(fromB64url(p.attestationObject)), rpId, true);
+      key = await readAuthData(authDataOf(bytesOf(p.attestationObject)), rpId, true);
     } catch (e) {
       if (e && e.passkey) return failed();
       throw e;
@@ -560,7 +568,13 @@ const PRIVATE = {
     let id = String(p.id || '');
     if (id) {
       if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) return fail('練習日が見つかりません。', 'NOT_FOUND');
-      this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, id);
+      // 出欠をとらない予定に変えると、その日の出欠は消す。入っていれば、先に画面で確かめてもらう（dropAnswers）
+      const n = f.noentry ? this.db.exec('SELECT COUNT(*) AS n FROM answers WHERE day_id = ?', id)[0].n : 0;
+      if (n && p.dropAnswers !== true) return fail(`${n}人の出欠も消えます。出欠をとらない予定にしますか？`, 'HAS_ANSWERS');
+      this.db.txn(() => {
+        if (n) this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
+        this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, id);
+      });
     } else {
       id = this.addDay(date, f);
     }
@@ -621,7 +635,13 @@ const PRIVATE = {
     if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
     const pin = tempPin();
     const hash = await hashSecret(pin);
-    if (!this.member(id)) return fail('団員が見つかりません。', 'NOT_FOUND');
+    // 計算を待つあいだに役割が変わっていることがあるので、読み直して確かめ直す
+    const fresh = this.member(id);
+    if (!fresh) return fail('団員が見つかりません。', 'NOT_FOUND');
+    const by = who.member ? this.member(who.member.id) : null;
+    const role = who.member ? (by ? by.role : '') : 'admin';
+    if (!isOfficer(role)) return fail(DENIED.officer, 'FORBIDDEN');
+    if (role !== 'admin' && fresh.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
     this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', hash, id);
     return { ok: true, name: target.name, pin };
   }],
@@ -671,7 +691,8 @@ const PRIVATE = {
 
   setPassphrase: ['admin', async function (p) {
     const v = String(p.passphrase || '').trim();
-    if (v.length < LIMITS.PASSPHRASE_MIN || v.length > LIMITS.PASSPHRASE_MAX) return fail(`合言葉は${LIMITS.PASSPHRASE_MIN}〜${LIMITS.PASSPHRASE_MAX}文字にしてください。`);
+    const n = count(v);
+    if (n < LIMITS.PASSPHRASE_MIN || n > LIMITS.PASSPHRASE_MAX) return fail(`合言葉は${LIMITS.PASSPHRASE_MIN}〜${LIMITS.PASSPHRASE_MAX}文字にしてください。`);
     this.kput('passphrase', await hashSecret(v));
     return { ok: true, open: true };
   }],
@@ -686,7 +707,7 @@ const PRIVATE = {
     const pos = (part) => (part in order ? order[part] : 999);
     rows.sort((a, b) => (a.date + a.st).localeCompare(b.date + b.st) || (pos(a.part) - pos(b.part)) || a.name.localeCompare(b.name, 'ja'));
     const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '時刻', '欠席理由', '回答日時']];
-    for (const r of rows) lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', r.updated_at || '']);
+    for (const r of rows) lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', jstTime(r.updated_at)]);
     return { ok: true, csv: lines.map((l) => l.map(csvCell).join(',')).join('\r\n') + '\r\n' };
   }],
 };
@@ -721,17 +742,35 @@ function userError(message, code) { const e = new Error(message); e.userMessage 
  * 姓と名のどちらかが空なら name を空で返す
  */
 function personName(p) {
-  const sei = bare(String(p.sei || '')).slice(0, LIMITS.NAME);
-  const mei = bare(String(p.mei || '')).slice(0, LIMITS.NAME);
+  const sei = cut(bare(String(p.sei || '')), LIMITS.NAME);
+  const mei = cut(bare(String(p.mei || '')), LIMITS.NAME);
   if (!sei || !mei) return { name: '', sei, mei };
-  return { name: (sei + mei).slice(0, LIMITS.NAME), sei, mei };
+  return { name: sei + mei, sei, mei }; // 氏名は切らない（姓と名がそれぞれ30文字までなので、60文字まで）
 }
 /** 氏名をスペース抜きで比べる（前の登録で残ったスペースがあっても同じ人として扱う） */
 const SAME_NAME = "REPLACE(REPLACE(name, '　', ''), ' ', '') = ?";
 function bare(name) { return name.replace(/[\s　]+/g, ''); }
 function cleanText(v, max) {
   // 制御文字を除く（改行とタブは残す）
-  return String(v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
+  return cut(String(v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim(), max);
+}
+/**
+ * 文字数は見た目の1文字を1と数える（絵文字や、組み合わせてできる文字も1文字）。
+ * 長さ（length）で数えたり切ったりすると、絵文字の途中で切れて別の文字（�）に化けるため
+ */
+const SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('ja', { granularity: 'grapheme' }) : null;
+function chars(s) { return SEGMENTER ? Array.from(SEGMENTER.segment(s), (x) => x.segment) : Array.from(s); }
+function count(s) { return chars(s).length; }
+/** max 文字までにする */
+function cut(s, max) { const c = chars(s); return c.length > max ? c.slice(0, max).join('') : s; }
+/** 記録の日時（ISO の形）を、CSV に出す日本時間の 2026-10-20 14:20:48 の形に */
+function jstTime(iso) {
+  const t = Date.parse(iso || '');
+  return isNaN(t) ? '' : new Date(t + 9 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+}
+/** サイトの起点（https://example.org）。末尾の / などがあってもそろえる。正しくなければ空 */
+export function originOf(v) {
+  try { return new URL(String(v || '').trim()).origin; } catch (e) { return ''; }
 }
 function csvCell(v) {
   let s = String(v == null ? '' : v);
