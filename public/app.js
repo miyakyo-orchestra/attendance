@@ -823,13 +823,17 @@
   }
 
   // ---------------- プライバシーポリシー ----------------
+  /** privacy.js・manual.js の見出しと段落を、同じ形のカードで並べる */
+  function docSections(doc) {
+    return (doc.sections || []).map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('');
+  }
   function viewPrivacy() {
     const doc = window.PRIVACY || { sections: [] };
     const dates = [`${doc.ENACTED}制定`].concat((doc.REVISED || []).map((d) => `${d}改定`));
     const body = `
       <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1>プライバシーポリシー</h1></div>
       <p class="doc-date">${dates.map(esc).join('、')}</p>
-      ${doc.sections.map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('')}`;
+      ${docSections(doc)}`;
     return state.me ? page(body) : top() + `<main>${body}</main>`;
   }
 
@@ -838,7 +842,7 @@
     const doc = window.MANUAL || { title: '', sections: [] };
     return page(`
       <div class="title-row"><button class="icon back" data-act="manual-back" aria-label="戻る">${ICON.back}</button><h1>${esc(doc.title)}</h1></div>
-      ${doc.sections.map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('')}`);
+      ${docSections(doc)}`);
   }
   /** 手引きから、管理の団員のタブに戻る */
   function backToAdmin() {
@@ -970,17 +974,14 @@
     return `<section class="card">
         <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
       </section>
-      ${a.members.length ? memberGroups(a).map(([part, ms]) => `<section class="card">
-        <div class="part-head"><h2>${esc(part)}</h2><span>${ms.length}人</span></div>
-        ${ms.map((m) => `<div class="list-row">
+      ${memberSections(a, (m) => `<div class="list-row">
           <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選ぶ</span></label>
           <div class="main"><b>${esc(m.name)}</b></div>
           <div class="actions">
             ${resetButton(m)}
             <label class="sr" for="role-${esc(m.id)}">${esc(m.name)}の役割</label>
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
-          </div></div>`).join('')}
-      </section>`).join('') : '<div class="empty">団員はまだいません</div>'}
+          </div></div>`)}
       ${manualLink()}
       <details class="card pad fold"${a.open ? '' : ' open'}>
         <summary><h2>合言葉</h2><span class="badge${a.open ? ' on' : ''}">${a.open ? '設定済み' : '未設定'}</span>${ICON.down}</summary>
@@ -995,12 +996,9 @@
     return `<section class="card">
         <div class="part-head"><h2>団員</h2><span>${a.members.length}人</span></div>
       </section>
-      ${a.members.length ? memberGroups(a).map(([part, ms]) => `<section class="card">
-        <div class="part-head"><h2>${esc(part)}</h2><span>${ms.length}人</span></div>
-        ${ms.map((m) => `<div class="list-row">
+      ${memberSections(a, (m) => `<div class="list-row">
           <div class="main"><b>${esc(m.name)}</b>${m.role !== 'member' ? `<small>${ROLE_LABEL[m.role]}</small>` : ''}</div>
-          ${m.role === 'member' ? `<div class="actions tight">${resetButton(m)}</div>` : ''}</div>`).join('')}
-      </section>`).join('') : '<div class="empty">団員はまだいません</div>'}
+          ${m.role === 'member' ? `<div class="actions tight">${resetButton(m)}</div>` : ''}</div>`)}
       ${manualLink()}`;
   }
   /** 暗証番号の再設定の手引きを開くボタン（団員のタブのいちばん下） */
@@ -1018,6 +1016,15 @@
     a.members.forEach((m) => { (by[m.part] = by[m.part] || []).push(m); });
     const extra = Object.keys(by).filter((k) => !order.includes(k)).sort();
     return [...order, ...extra].filter((k) => by[k]).map((k) => [k, by[k]]);
+  }
+  /** 団員をパートごとのカードに分ける。row は1人分の HTML を作る */
+  function memberSections(a, row) {
+    const groups = memberGroups(a);
+    if (!groups.length) return '<div class="empty">団員はまだいません</div>';
+    return groups.map(([part, ms]) => `<section class="card">
+        <div class="part-head"><h2>${esc(part)}</h2><span>${ms.length}人</span></div>
+        ${ms.map(row).join('')}
+      </section>`).join('');
   }
 
   // 管理: パートの足し引き

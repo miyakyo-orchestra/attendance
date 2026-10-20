@@ -13,7 +13,8 @@
  *   ALLOWED_ORIGIN … 画面のサイトの起点（wrangler.toml。例: https://miyakyo-orchestra.github.io）
  */
 
-import { Store, originOf } from './store.js';
+import { Store } from './store.js';
+import { originOf } from './util.js';
 
 const MAX_BODY = 64 * 1024; // 呼び出しの本文の上限（バイト）
 
