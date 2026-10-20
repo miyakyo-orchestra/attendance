@@ -261,6 +261,8 @@
   }
   function parseDate(d) { const [y, m, dd] = d.split('-').map(Number); return { y, m, d: dd, wd: new Date(Date.UTC(y, m - 1, dd)).getUTCDay() }; }
   /** 日付を 10/15(木) の形に */
+  /** サーバーの記録の日時（ISO の形）の、日本時間での日付 */
+  function jstDate(iso) { const t = Date.parse(iso); return isNaN(t) ? String(iso).slice(0, 10) : new Date(t + 9 * 3600000).toISOString().slice(0, 10); }
   function dateLabel(d) { const p = parseDate(d); return `${p.m}/${p.d}(${WEEKDAYS[p.wd]})`; }
   /** 練習の時刻を 13:00〜17:00 の形に（終わりがなければ 13:00〜、どちらもなければ空） */
   function timeLabel(day) { return day.st && day.en ? `${day.st}〜${day.en}` : day.st ? `${day.st}〜` : ''; }
@@ -304,14 +306,48 @@
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
     closeTip();
     const sheetTop = app.querySelector('.sheet-body') ? app.querySelector('.sheet-body').scrollTop : 0;
+    const hadSheet = !!app.querySelector('.sheet');
+    const focused = focusKey(document.activeElement);
     app.innerHTML = (VIEWS[state.view] || viewAuth)();
     if (app.querySelector('.sheet-body')) app.querySelector('.sheet-body').scrollTop = sheetTop; // 日付を選んで描き直しても、シートの中の位置を保つ
     // 時刻の欄は、描いたあとで値を入れる。value に書くと、iPhone の「リセット」がその値に戻すだけで空にならないため
     app.querySelectorAll('input[type="time"][data-value]').forEach((el) => { el.value = el.dataset.value; });
-    document.body.classList.toggle('sheet-open', !!app.querySelector('.sheet'));
+    const sheet = app.querySelector('.sheet');
+    document.body.classList.toggle('sheet-open', !!sheet);
+    keepFocus(sheet, hadSheet, focused);
     if (state.view === 'roster') keepChipScroll();
     if (state.busy) setBusy(true);
     syncHistory();
+  }
+  // キーボードで使う人のために、描き直しても押していたボタンにとどまる。
+  // シートを開いたらシートへ移し、後ろの画面は押せないようにする（inert）。閉じたら開いたボタンへ戻す
+  let sheetOpener = null;
+  function focusKey(el) {
+    if (!el || el === document.body || !app.contains(el) || !el.dataset || !el.dataset.act) return null;
+    return { act: el.dataset.act, id: el.dataset.id || '', date: el.dataset.date || '', v: el.dataset.v || '', n: el.dataset.n || '' };
+  }
+  function findKey(k) {
+    if (!k) return null;
+    return Array.from(app.querySelectorAll('[data-act]')).find((x) => x.dataset.act === k.act && (x.dataset.id || '') === k.id
+      && (x.dataset.date || '') === k.date && (x.dataset.v || '') === k.v && (x.dataset.n || '') === k.n) || null;
+  }
+  function keepFocus(sheet, hadSheet, focused) {
+    // シートは main の中にあるので、シートから上へたどり、それぞれの横に並ぶものを押せなくする（描き直すたびに作り直されるので外す必要はない）
+    for (let node = sheet; node && node !== app; node = node.parentElement) {
+      for (const el of node.parentElement.children) if (el !== node && !el.classList.contains('sheet-back')) el.inert = true;
+    }
+    let target = null;
+    if (sheet && !hadSheet) {
+      sheetOpener = focused;
+      sheet.tabIndex = -1;
+      target = sheet;
+    } else if (!sheet && hadSheet) {
+      target = findKey(sheetOpener);
+      sheetOpener = null;
+    } else {
+      target = findKey(focused);
+    }
+    if (target) target.focus({ preventScroll: true });
   }
   // 一覧の日付の帯は、描き直しても横の位置を保つ。日付を選んだら、その日が真ん中に来るまで滑らかに動かす
   let chipScroll = null;
@@ -779,7 +815,7 @@
       </details>
       ${PASSKEY ? `<section class="card">
         <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo()}</div><span>${keys ? keys.length + '個' : ''}</span></div>
-        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(dateLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
+        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(jstDate(k.created_at)))}に作成</b><small>${k.last_used ? esc(dateLabel(jstDate(k.last_used))) + 'に使用' : '未使用'}</small></div>
           <div class="actions"><button class="ghost icon danger" data-act="passkey-delete" data-id="${esc(k.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
       </section>` : ''}
@@ -881,6 +917,7 @@
       </section>`;
   }
   let sheetEnter = false; // 開いた直後の1回だけ、下から出てくる動きをつける
+  const quickSending = {}; // リストのチェックで、送っている途中の練習日
   function openSheet(kind) { state.daySheet = kind; state.error = ''; state.flash = ''; sheetEnter = true; render(); }
   function closeSheet() { state.daySheet = ''; state.editDay = null; state.error = ''; render(); }
   /** 練習日の種類・時刻・メモの欄 */
@@ -1126,14 +1163,19 @@
     'close-answer': () => { state.answerSheet = ''; state.error = ''; render(); },
     'quick-attend': async (el) => {
       const id = el.dataset.id;
+      if (quickSending[id]) return; // 送っている途中に押し直しても受けない（2つ送って順番が入れ替わらないように）
       const before = state.answers[id];
       const status = before && before.status === 'attend' ? 'none' : 'attend';
-      if (status === 'none') delete state.answers[id]; else state.answers[id] = { status, reason: '', at: '' };
+      const mine = status === 'none' ? undefined : { status, reason: '', at: '' };
+      if (mine) state.answers[id] = mine; else delete state.answers[id];
       state.flash = ''; state.error = '';
       render();
-      const r = await api('answer', { dayId: id, status });
+      quickSending[id] = true;
+      let r;
+      try { r = await api('answer', { dayId: id, status }); } finally { delete quickSending[id]; }
       if (r.ok) return;
-      if (before) state.answers[id] = before; else delete state.answers[id];
+      // 待つあいだにシートで別の答えを送っていたら、そちらを残す
+      if (state.answers[id] === mine) { if (before) state.answers[id] = before; else delete state.answers[id]; }
       check(r);
       render();
     },
@@ -1295,7 +1337,13 @@
       state.view = 'home';
     }),
     'day': (f) => run(async () => {
-      const r = await api('saveDay', Object.assign({ id: state.editDay ? state.editDay.id : '' }, f));
+      const params = Object.assign({ id: state.editDay ? state.editDay.id : '' }, f);
+      let r = await api('saveDay', params);
+      // 出欠をとらない予定に変えると、その日の出欠は消える。入っていれば確かめてから送り直す
+      if (r.code === 'HAS_ANSWERS') {
+        if (!confirm(r.message)) return;
+        r = await api('saveDay', Object.assign({ dropAnswers: true }, params));
+      }
       if (!check(r)) return;
       state.flash = `${dateLabel(f.date)}を保存しました`;
       state.editDay = null;

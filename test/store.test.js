@@ -250,9 +250,15 @@ test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   const t = await ready();
   await join(t, '前の人', 'Vn');
   t.store.db.exec("UPDATE members SET part = 'Vn2'");
+  t.store.db.exec("DELETE FROM kv WHERE k = 'migrated:vn'"); // 直す前のデータに戻す
   t.store.init();
   assert.equal(t.store.db.exec('SELECT part FROM members')[0].part, 'Vn');
   assert.equal((await t.call('register', { passphrase: 'orchestra', name: '新しい人', part: 'Vn1', pin: '1234' })).ok, false);
+  // 直すのは一度だけ。あとで管理画面から Vn1 を足して使っても、起きるたびに Vn に戻さない
+  assert.equal((await t.call('addPart', { id: 'Vn1', group: 'strings' }, t.adminToken)).ok, true);
+  await join(t, '新しい人', 'Vn1');
+  t.store.init();
+  assert.equal(t.store.db.exec("SELECT part FROM members WHERE name = '新しい人'")[0].part, 'Vn1');
 });
 
 test('姓と名を分けて登録し、前に登録した人も姓と名に分かれる', async () => {
@@ -502,4 +508,81 @@ test('暗証番号を忘れた人は、記録を残したまま仮の番号に�
   assert.equal((await t.call('resetPin', { id: oid }, a)).ok, true);
   assert.equal((await t.call('resetPin', { id }, m)).code, 'FORBIDDEN');
   assert.equal((await t.call('resetPin', { id: 'nope' }, a)).code, 'NOT_FOUND');
+});
+
+test('上限で切っても絵文字が化けない（見た目の1文字を1と数える）', async () => {
+  const t = await ready();
+  const m = await join(t, '絵文字の人', 'Va');
+  const reason = 'あ'.repeat(199) + '😀' + 'い';
+  const r = await t.call('answer', { dayId: t.dayId, status: 'absent', reason }, m);
+  assert.equal(r.answer.reason, 'あ'.repeat(199) + '😀');
+  assert.equal(r.answer.reason.includes('�'), false);
+  // 姓と名はそれぞれ30文字まで。つないだ氏名は切らない
+  const long = await t.call('register', { passphrase: 'orchestra', sei: '姓'.repeat(31), mei: '名'.repeat(30), part: 'Vn', pin: '1234' }, null, null, true);
+  assert.equal(long.me.name, '姓'.repeat(30) + '名'.repeat(30));
+  assert.equal((await t.call('login', { name: '姓'.repeat(30) + '名'.repeat(30), pin: '1234' }, null, null, true)).ok, true);
+  // 合言葉も見た目の文字で数える（絵文字33個は33文字）
+  assert.equal((await t.call('setPassphrase', { passphrase: '🎻'.repeat(33) }, t.adminToken)).ok, true);
+});
+
+test('合言葉は前後の空白を除いて比べる', async () => {
+  const t = await ready();
+  assert.equal((await t.call('setPassphrase', { passphrase: '  efgh  ' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('register', { passphrase: '  efgh  ', name: '空白 さん', part: 'Vn', pin: '1234' })).ok, true);
+  assert.equal((await t.call('register', { passphrase: 'efgh ', name: '空白 くん', part: 'Vn', pin: '1234' })).ok, true);
+});
+
+test('同時にたくさん間違えても、誤りの回数は数え漏れない', async () => {
+  const t = await ready();
+  await join(t, '狙われる人', 'Va', '1234');
+  const tries = await Promise.all(Array.from({ length: 30 }, (_, i) => t.call('login', { name: '狙われる人', pin: String(5000 + i) }, null, '9.9.9.9')));
+  // 接続元ごとの上限（10回）を超えた分は、照合の結果を返さず止める
+  assert.ok(tries.filter((r) => r.code === 'WRONG_PIN').length <= 10);
+  assert.ok(tries.some((r) => r.code === 'LOCKED'));
+  // 団員ごとの上限（5回）も効いていて、別の接続元から正しい番号を入れても入れない
+  assert.equal((await t.call('login', { name: '狙われる人', pin: '1234' }, null, '8.8.8.8')).code, 'LOCKED');
+});
+
+test('暗証番号を変えている途中に、古い番号でのログインは通らない', async () => {
+  const t = await ready();
+  const a = await join(t, '変える人', 'Va', '1111');
+  const [changed, old] = await Promise.all([
+    t.call('changePin', { pin: '1111', newPin: '2222' }, a),
+    t.call('login', { name: '変える人', pin: '1111' }),
+  ]);
+  assert.equal(changed.ok, true);
+  // 古い番号で入れたとしても、そのログインは番号を変えたときに切れている
+  if (old.ok) assert.equal((await t.call('home', {}, old.token)).code, 'UNAUTHORIZED');
+});
+
+test('パスキーの値が壊れていても、サーバーの誤りにならない', async () => {
+  const t = await ready();
+  const r = await t.call('passkeyLogin', { id: 'x', clientDataJSON: '!!!', authenticatorData: '%%', signature: 1 });
+  assert.equal(r.code, 'PASSKEY_FAILED');
+  const m = await join(t, 'パスキーの人', 'Va');
+  assert.equal((await t.call('passkeyRegister', { clientDataJSON: '***', attestationObject: '' }, m)).code, 'PASSKEY_FAILED');
+});
+
+test('出欠をとらない予定に変えると、確かめたうえでその日の出欠を消す', async () => {
+  const t = await ready();
+  const m = await join(t, '答えた人', 'Va');
+  await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '実習' }, m);
+  const edit = { id: t.dayId, date: '2026-10-17', kind: '授業', noentry: true };
+  const ask = await t.call('saveDay', edit, t.adminToken);
+  assert.equal(ask.code, 'HAS_ANSWERS');
+  assert.match(ask.message, /1人/);
+  assert.equal(t.store.db.exec('SELECT noentry FROM days WHERE id = ?', t.dayId)[0].noentry, 0); // 確かめるまでは変えない
+  assert.equal((await t.call('saveDay', Object.assign({ dropAnswers: true }, edit), t.adminToken)).ok, true);
+  assert.equal(t.store.db.exec('SELECT COUNT(*) AS n FROM answers')[0].n, 0);
+  // 出欠をとる予定に戻しても、前の出欠は戻らない
+  await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '分奏' }, t.adminToken);
+  assert.deepEqual((await t.call('home', {}, m)).answers, {});
+});
+
+test('CSV の回答日時は日本時間で出す', async () => {
+  const t = await ready();
+  const m = await join(t, '記録の人', 'Va');
+  await t.call('answer', { dayId: t.dayId, status: 'attend' }, m);
+  const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
+  assert.match(csv, /記録の人,Va,出席,,,2026-10-15 12:00:00/);
 });

@@ -2,6 +2,9 @@
   "name": "miyakyo-orchestra-attendance",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.16"
+  },
   "scripts": {
     "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
     "dev:web": "python3 -m http.server 8765 --bind 127.0.0.1 -d public",

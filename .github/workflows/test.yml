@@ -1,4 +1,4 @@
-# プルリクエストと push のたびに、store.js のテスト（npm test）を流す
+# プルリクエストと push のたびに、store.js のテスト（npm test）と、画面とサーバーの JS の書き方の確認を流す
 name: テスト
 
 on:
@@ -18,3 +18,5 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - name: 書き方の確認
+        run: for f in public/*.js src/*.js; do node --check "$f"; done

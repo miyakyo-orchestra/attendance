@@ -13,14 +13,18 @@
  *   ALLOWED_ORIGIN … 画面のサイトの起点（wrangler.toml。例: https://miyakyo-orchestra.github.io）
  */
 
-import { Store } from './store.js';
+import { Store, originOf } from './store.js';
+
+const MAX_BODY = 64 * 1024; // 呼び出しの本文の上限（バイト）
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const allowed = String(env.ALLOWED_ORIGIN || '').trim();
+    const allowed = originOf(env.ALLOWED_ORIGIN); // 設定の末尾に / が付いていてもそろえる
     const origin = request.headers.get('Origin') || '';
-    // ほかのサイトから呼ばれないよう、画面のサイトからの呼び出しだけ受ける
+    // ほかのサイトの画面から呼ばれないよう、ブラウザが付ける Origin が画面のサイトのものだけ受ける。
+    // Origin のない呼び出し（ブラウザ以外から）は止めない。ブラウザ以外は Origin を自由に書けるので、止めても守りにならない。
+    // 本当の守りは、ログインの印と、誤りの回数で止めるしくみ（store.js）
     if (origin && origin !== allowed) return json({ ok: false, code: 'FORBIDDEN' }, 403);
     const withCors = (res) => {
       const h = new Headers(res.headers);
@@ -40,8 +44,11 @@ export default {
       } }));
     }
     if (request.method !== 'POST') return json({ ok: false, code: 'BAD_REQUEST' }, 405);
+    // 本文はここで上限まで読み切ってから渡す（大きな本文で Durable Object の手を止めないため）
+    const text = await readBody(request);
+    if (text === null) return withCors(json({ ok: false, code: 'TOO_LARGE' }, 413));
     const stub = env.MAIN.get(env.MAIN.idFromName('main'));
-    return withCors(await stub.fetch(request));
+    return withCors(await stub.fetch(new Request(request.url, { method: 'POST', headers: request.headers, body: text })));
   },
 };
 
@@ -57,7 +64,6 @@ export class Main {
 
   async fetch(request) {
     const text = await request.text();
-    if (text.length > 64 * 1024) return json({ ok: false, code: 'TOO_LARGE' }, 413);
     let body;
     try { body = JSON.parse(text || '{}'); } catch (e) { return json({ ok: false, code: 'BAD_REQUEST', message: '形式が正しくありません。' }, 400); }
     const auth = request.headers.get('Authorization') || '';
@@ -70,6 +76,29 @@ export class Main {
       return json({ ok: false, code: 'ERROR', message: 'サーバーで問題が起きました。時間をおいてやり直してください。' }, 500);
     }
   }
+}
+
+/**
+ * 本文を読む。上限（MAX_BODY バイト）を超えたら、その時点で読むのをやめて null を返す。
+ * 日本語は1文字3バイトなので、文字数ではなくバイトで数える
+ */
+async function readBody(request) {
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY) return null; // 先に分かるときは読まずに断る
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY) { await reader.cancel(); return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { all.set(part, at); at += part.byteLength; }
+  return new TextDecoder().decode(all);
 }
 
 function json(data, status) {
