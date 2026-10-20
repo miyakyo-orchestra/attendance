@@ -45,6 +45,7 @@
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
     more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
+    key: svg('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M16.5 6.5l2.5 2.5"/><path d="M14 9l2 2"/>', 20),
   };
 
   // ---------------- 画面の状態 ----------------
@@ -85,6 +86,7 @@
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
+    tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
   };
   function savedHomeView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'; } catch (e) { return 'calendar'; } }
 
@@ -125,6 +127,7 @@
     if (state.busy) return;
     state.busy = true;
     state.error = '';
+    state.tempPin = null;
     setBusy(true);
     try { await fn(); } finally { state.busy = false; render(); }
   }
@@ -395,8 +398,10 @@
     </div></details>`;
   }
   function messages() {
+    const t = state.view === 'admin' && state.tempPin;
     return (state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '')
-      + (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '');
+      + (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '')
+      + (t ? `<div class="flash temp-pin" role="status">${esc(t.name)}の仮の暗証番号<b>${esc(t.pin)}</b></div>` : '');
   }
   /** 曜日の並び（日〜土） */
   function weekRow() {
@@ -762,6 +767,14 @@
           <button class="cta" type="submit">保存する</button>
         </form>
       </section>
+      <details class="card pad fold">
+        <summary><h2>暗証番号</h2>${ICON.down}</summary>
+        <form data-form="pin" class="stack fold-body">
+          <label class="field">今の暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" required></label>
+          <label class="field">新しい暗証番号<input class="input" type="password" name="newPin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
+          <button class="ghost wide-btn" type="submit">変える</button>
+        </form>
+      </details>
       ${PASSKEY ? `<section class="card">
         <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo()}</div><span>${keys ? keys.length + '個' : ''}</span></div>
         ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(k.created_at.slice(0, 10)))}に作成</b><small>${k.last_used ? esc(dateLabel(k.last_used.slice(0, 10))) + 'に使用' : '未使用'}</small></div>
@@ -787,11 +800,13 @@
     const a = state.admin;
     if (!a) return page('<div class="empty">読み込み中</div>');
     const admin = isAdmin();
-    const tab = admin ? state.adminTab : 'days'; // パートリーダーには練習日だけ
+    // パートリーダーには練習日と団員（暗証番号の再設定だけ）
+    const tabList = admin ? ADMIN_TABS : ADMIN_TABS.filter(([k]) => k === 'days' || k === 'members');
+    const tab = tabList.some(([k]) => k === state.adminTab) ? state.adminTab : 'days';
     const body = { days: adminDays, members: adminMembers, parts: adminParts, records: adminRecords }[tab](a);
     return page(`
       <h1>管理</h1>
-      ${admin ? `<div class="seg" role="group" aria-label="管理の項目">${ADMIN_TABS.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>` : ''}
+      ${`<div class="seg" role="group" aria-label="管理の項目">${tabList.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>`}
       ${state.daySheet ? (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '') : messages()}
       ${body}
     `);
@@ -894,8 +909,9 @@
     state.picked = [...set].sort();
   }
 
-  // 管理: 団員と合言葉
+  // 管理: 団員と合言葉。パートリーダーには団員の暗証番号の再設定だけを出す
   function adminMembers(a) {
+    if (!isAdmin()) return officerMembers(a);
     const sel = state.selMembers.filter((id) => a.members.some((m) => m.id === id));
     return `<section class="card">
         <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
@@ -906,6 +922,7 @@
           <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選ぶ</span></label>
           <div class="main"><b>${esc(m.name)}</b></div>
           <div class="actions">
+            ${resetButton(m)}
             <label class="sr" for="role-${esc(m.id)}">${esc(m.name)}の役割</label>
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
           </div></div>`).join('')}
@@ -918,6 +935,21 @@
           <button class="ghost" type="submit">変える</button>
         </form>
       </details>`;
+  }
+  function officerMembers(a) {
+    return `<section class="card">
+        <div class="part-head"><h2>団員</h2><span>${a.members.length}人</span></div>
+      </section>
+      ${a.members.length ? memberGroups(a).map(([part, ms]) => `<section class="card">
+        <div class="part-head"><h2>${esc(part)}</h2><span>${ms.length}人</span></div>
+        ${ms.map((m) => `<div class="list-row">
+          <div class="main"><b>${esc(m.name)}</b>${m.role !== 'member' ? `<small>${ROLE_LABEL[m.role]}</small>` : ''}</div>
+          ${m.role === 'member' ? `<div class="actions tight">${resetButton(m)}</div>` : ''}</div>`).join('')}
+      </section>`).join('') : '<div class="empty">団員はまだいません</div>'}`;
+  }
+  /** 暗証番号を仮の番号に再設定するボタン（鍵のアイコン） */
+  function resetButton(m) {
+    return `<button class="ghost icon" data-act="reset-pin" data-id="${esc(m.id)}" aria-label="${esc(m.name)}の暗証番号を再設定" title="暗証番号を再設定">${ICON.key}</button>`;
   }
   /** 団員をパートの並び順でまとめる。パートの一覧にないパートの人は最後に */
   function memberGroups(a) {
@@ -1115,7 +1147,7 @@
     },
 
     // 管理
-    'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.editDay = null; state.daySheet = ''; render(); },
+    'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.tempPin = null; state.editDay = null; state.daySheet = ''; render(); },
     'add-day': () => { state.editDay = null; openSheet('add'); },
     'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; if (state.editDay) openSheet('edit'); },
     'close-sheet': () => { keepDraft(); closeSheet(); },
@@ -1151,6 +1183,16 @@
     },
     'pick-month': (el) => { keepDraft(); state.pickMonth = addMonth(state.pickMonth, Number(el.dataset.n)); render(); },
     'pick-clear': () => { keepDraft(); state.picked = []; render(); },
+    'reset-pin': (el) => {
+      const m = state.admin.members.find((x) => x.id === el.dataset.id);
+      if (!m || !confirm(`${m.name}の暗証番号を仮の番号に変えますか？出欠の記録はそのまま残ります。`)) return;
+      run(async () => {
+        const r = await api('resetPin', { id: m.id });
+        if (!check(r)) return;
+        state.flash = '';
+        state.tempPin = { name: r.name, pin: r.pin };
+      });
+    },
     'delete-members': () => {
       const ids = state.selMembers.slice();
       const names = state.admin.members.filter((m) => ids.includes(m.id)).map((m) => m.name);
@@ -1212,6 +1254,12 @@
       state.answers[id] = r.answer;
       state.flash = `${dateLabel(d.date)}の出欠を送信しました`;
       state.answerSheet = '';
+      state.view = 'home';
+    }),
+    'pin': (f) => run(async () => {
+      const r = await api('changePin', f);
+      if (!check(r)) return;
+      state.flash = '暗証番号を変えました';
       state.view = 'home';
     }),
     'profile': (f) => run(async () => {

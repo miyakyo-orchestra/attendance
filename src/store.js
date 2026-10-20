@@ -44,6 +44,7 @@ export const LIMITS = {
   PASSPHRASE_MAX: 64,
   PIN: /^\d{4,8}$/,
   PIN_FAILURES: 5, // 続けて間違えたら止める回数
+  TEMP_PIN_DIGITS: 6, // 暗証番号を再設定したときの仮の番号の桁数
   GATE_FAILURES: 10, // 合言葉・管理用パスワードを、同じ接続元から続けて間違えたら止める回数
   LOCK_SECONDS: 600,
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
@@ -450,6 +451,32 @@ const PRIVATE = {
     return { ok: true, me: this.meOf({ member: m, role: m.role }) };
   }],
 
+  /** 自分の暗証番号を変える。今の番号を確かめ、ほかの端末のログインは切る（いま使っている端末はそのまま） */
+  changePin: ['member', async function (p, who) {
+    const pin = String(p.pin || '');
+    const next = String(p.newPin || '');
+    if (!pin) return fail('今の暗証番号を入れてください。');
+    if (!LIMITS.PIN.test(next)) return fail('新しい暗証番号は4〜8桁の数字にしてください。');
+    const ok = await verifySecret(pin, who.member.pin);
+    const nextHash = await hashSecret(next);
+    // 照合のあいだに変わっているかもしれないので、読み直してから書く
+    const m = this.member(who.member.id);
+    if (!m) return fail('団員が見つかりません。', 'NOT_FOUND');
+    if (m.locked_until > this.now()) return fail('暗証番号の誤りが続いたため、しばらく変えられません。10分ほどあけてください。', 'LOCKED');
+    if (!ok || m.pin !== who.member.pin) {
+      // ログインと同じく、続けて間違えたら止める
+      const n = m.failures + 1;
+      const lock = n >= LIMITS.PIN_FAILURES;
+      this.db.exec('UPDATE members SET failures = ?, locked_until = ? WHERE id = ?', lock ? 0 : n, lock ? this.now() + LIMITS.LOCK_SECONDS * 1000 : 0, m.id);
+      return fail('今の暗証番号が違います。', 'WRONG_PIN');
+    }
+    this.db.txn(() => {
+      this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', nextHash, m.id);
+      this.db.exec('DELETE FROM sessions WHERE member_id = ? AND token <> ?', m.id, who.session);
+    });
+    return { ok: true };
+  }],
+
   /** 自分のパスキーの一覧 */
   passkeys: ['member', function (p, who) {
     return { ok: true, passkeys: this.passkeyList(who.member.id) };
@@ -519,7 +546,8 @@ const PRIVATE = {
   // ---------------- 管理者 ----------------
   /** 管理画面に出すもの。パートリーダーには練習日だけを返す */
   adminData: ['officer', function (p, who) {
-    if (who.role !== 'admin') return { ok: true, days: this.listDays() };
+    // パートリーダーには、暗証番号の再設定のために団員の氏名・パート・役割も返す
+    if (who.role !== 'admin') return { ok: true, days: this.listDays(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
     const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
     return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
   }],
@@ -570,7 +598,7 @@ const PRIVATE = {
     return { ok: true };
   }],
 
-  /** 団員を消す（出欠の記録も消す。暗証番号を忘れた人は、消してから登録し直してもらう） */
+  /** 団員を消す（出欠の記録・ログイン・パスキーも消す） */
   deleteMember: ['admin', function (p, who) {
     return this.removeMembers([String(p.id)], who);
   }],
@@ -580,6 +608,22 @@ const PRIVATE = {
     const ids = [...new Set(Array.isArray(p.ids) ? p.ids.map(String) : [])];
     if (!ids.length) return fail('団員を選んでください。');
     return this.removeMembers(ids, who);
+  }],
+
+  /**
+   * 暗証番号を忘れた人のために、仮の番号に変える。出欠の記録・ログイン・パスキーはそのまま残す。
+   * 仮の番号はこの応答でだけ返し、置くのは元に戻せない形だけ。パートリーダーが変えられるのは団員（member）だけ
+   */
+  resetPin: ['officer', async function (p, who) {
+    const id = String(p.id || '');
+    const target = this.member(id);
+    if (!target) return fail('団員が見つかりません。', 'NOT_FOUND');
+    if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
+    const pin = tempPin();
+    const hash = await hashSecret(pin);
+    if (!this.member(id)) return fail('団員が見つかりません。', 'NOT_FOUND');
+    this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', hash, id);
+    return { ok: true, name: target.name, pin };
   }],
 
   /** 年度（4月から翌年3月）の練習日と、その出欠をまとめて消す */
@@ -663,6 +707,11 @@ function dayFields(p) {
   const kind = cleanText(p.kind, LIMITS.KIND);
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
+}
+/** 再設定のときの仮の暗証番号（数字だけ） */
+function tempPin() {
+  const r = crypto.getRandomValues(new Uint32Array(LIMITS.TEMP_PIN_DIGITS));
+  return Array.from(r, (n) => n % 10).join('');
 }
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
