@@ -123,6 +123,8 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 
 .flash { padding: 12px 14px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); font-size: 14px; font-weight: 500; }
+.flash.temp-pin { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.flash.temp-pin b { font-size: 24px; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; user-select: all; }
 .error { padding: 12px 14px; border-radius: 10px; background: var(--amber-soft); color: var(--amber-ink); font-size: 14px; font-weight: 500; }
 .empty { padding: 32px 16px; text-align: center; color: var(--sub); font-size: 14px; }
 
@@ -131,13 +133,14 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 /* 面（白い板） */
 .card { background: var(--surface); border-radius: 12px; overflow: hidden; }
 .card.pad { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-/* 畳める面（管理の合言葉） */
+/* 畳める面（管理の合言葉、設定の暗証番号） */
 .fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary h2 { margin: 0; }
 .fold > summary svg { margin-left: auto; color: var(--sub); transition: transform .15s; }
 .fold[open] > summary svg { transform: rotate(180deg); }
 .fold .inline { margin-top: 12px; }
+.fold .fold-body { margin-top: 4px; }
 
 /* 練習日のリスト */
 .day { width: 100%; display: flex; align-items: center; }

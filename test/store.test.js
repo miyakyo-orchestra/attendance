@@ -409,7 +409,8 @@ test('パートリーダーは練習日を登録できるが、団員の管理�
   await t.call('setRole', { id, role: 'officer' }, t.adminToken);
   const data = await t.call('adminData', {}, o);
   assert.equal(data.ok, true);
-  assert.equal('members' in data, false);
+  assert.equal('open' in data, false); // 合言葉の状態や役割の一覧は管理者だけ
+  assert.equal(data.members.some((x) => 'pin' in x || 'created_at' in x), false);
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, o)).ok, true);
   assert.equal((await t.call('deleteDay', { id: t.dayId }, o)).ok, true);
   assert.equal((await t.call('setRole', { id, role: 'admin' }, o)).code, 'FORBIDDEN');
@@ -455,4 +456,50 @@ test('パートを足し引きできる', async () => {
   r = await t.call('deletePart', { id: 'Fg' }, t.adminToken);
   assert.equal(r.parts.some((p) => p.id === 'Fg'), false);
   assert.equal((await t.call('register', { passphrase: 'orchestra', name: 'X', part: 'Fg', pin: '1234' })).ok, false);
+});
+
+test('自分で暗証番号を変えると、ほかの端末のログインは切れる', async () => {
+  const t = await ready();
+  const a = await join(t, '変える人', 'Va', '1111');
+  const b = (await t.call('login', { name: '変える人', pin: '1111' })).token;
+  assert.equal((await t.call('changePin', { pin: '1111', newPin: '12' }, a)).ok, false);
+  assert.equal((await t.call('changePin', { pin: '9999', newPin: '2222' }, a)).code, 'WRONG_PIN');
+  assert.equal((await t.call('changePin', { pin: '1111', newPin: '2222' }, a)).ok, true);
+  assert.equal((await t.call('home', {}, a)).ok, true); // いま使っている端末はそのまま
+  assert.equal((await t.call('home', {}, b)).code, 'UNAUTHORIZED');
+  assert.equal((await t.call('login', { name: '変える人', pin: '1111' })).code, 'WRONG_PIN');
+  assert.equal((await t.call('login', { name: '変える人', pin: '2222' })).ok, true);
+  // 今の番号を5回間違えると止まる
+  for (let i = 0; i < 5; i++) assert.equal((await t.call('changePin', { pin: '0000', newPin: '3333' }, a)).code, 'WRONG_PIN');
+  assert.equal((await t.call('changePin', { pin: '2222', newPin: '3333' }, a)).code, 'LOCKED');
+});
+
+test('暗証番号を忘れた人は、記録を残したまま仮の番号に再設定できる', async () => {
+  const t = await ready();
+  const m = await join(t, '忘れた人', 'Va', '1111');
+  const id = (await t.call('home', {}, m)).me.id;
+  await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '実習' }, m);
+  // 止まっていても再設定すれば入れる
+  for (let i = 0; i < 5; i++) await t.call('login', { name: '忘れた人', pin: '0000' }, null, '3.3.3.3');
+  const r = await t.call('resetPin', { id }, t.adminToken);
+  assert.equal(r.ok, true);
+  assert.match(r.pin, /^\d{6}$/);
+  const login = await t.call('login', { name: '忘れた人', pin: r.pin });
+  assert.equal(login.ok, true);
+  assert.equal((await t.call('home', {}, login.token)).answers[t.dayId].reason, '実習');
+  assert.equal((await t.call('login', { name: '忘れた人', pin: '1111' })).code, 'WRONG_PIN');
+
+  // パートリーダーは団員だけを再設定できる。団員は誰のも再設定できない
+  const o = await join(t, 'リーダー', 'Fl');
+  const a = await join(t, '管理する人', 'Ob');
+  const oid = (await t.call('home', {}, o)).me.id;
+  const aid = (await t.call('home', {}, a)).me.id;
+  await t.call('setRole', { id: oid, role: 'officer' }, t.adminToken);
+  await t.call('setRole', { id: aid, role: 'admin' }, t.adminToken);
+  assert.equal((await t.call('resetPin', { id }, o)).ok, true);
+  assert.equal((await t.call('resetPin', { id: aid }, o)).code, 'FORBIDDEN');
+  assert.equal((await t.call('resetPin', { id: oid }, o)).code, 'FORBIDDEN');
+  assert.equal((await t.call('resetPin', { id: oid }, a)).ok, true);
+  assert.equal((await t.call('resetPin', { id }, m)).code, 'FORBIDDEN');
+  assert.equal((await t.call('resetPin', { id: 'nope' }, a)).code, 'NOT_FOUND');
 });
