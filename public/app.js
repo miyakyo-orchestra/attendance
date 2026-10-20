@@ -10,6 +10,7 @@
  * - profile  … 設定（自分の氏名とパート、パスキー）
  * - admin    … 管理（練習日・団員・パート・記録）
  * - privacy  … プライバシーポリシー（文は privacy.js）。ログインの前でも読める
+ * - manual   … パートリーダーと管理者向けの、暗証番号の再設定の手引き（文は manual.js）
  * 画面は render() で state から HTML を作り直して描く。ボタンは data-act、フォームは data-form の名前で、
  * 下の ACTIONS と FORMS の処理につながる。
  * サーバーとは POST /api だけでやりとりする（src/worker.js・src/store.js）。ログインの印は端末の localStorage に置く。
@@ -296,8 +297,8 @@
   }
 
   // ---------------- 画面の組み立て（共通） ----------------
-  const VIEWS = { auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy };
-  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile', 'privacy']; // 下のタブを出す画面
+  const VIEWS = { auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy, manual: viewManual };
+  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile', 'privacy', 'manual']; // 下のタブを出す画面
 
   function render() {
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
@@ -354,7 +355,7 @@
 
   // 出欠の入力・設定・プライバシーポリシーの画面を開いたら、ブラウザの履歴を一つ積む。
   // iPhone で画面の左端から右へなぞる「戻る」や、Android の戻るボタンで練習日に戻れるようにするため
-  const SUB_VIEWS = ['entry', 'profile', 'privacy'];
+  const SUB_VIEWS = ['entry', 'profile', 'privacy', 'manual'];
   let subPushed = false;
   let ignorePop = false;
   function syncHistory() {
@@ -367,6 +368,7 @@
     if (!subPushed) return;
     subPushed = false;
     if (state.view === 'admin' && state.daySheet) { keepDraft(); closeSheet(); return; }
+    if (state.view === 'manual') { backToAdmin(); return; }
     goHome();
   });
 
@@ -377,7 +379,7 @@
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    const current = state.view === 'entry' ? 'home' : state.view; // 出欠の入力は練習日のタブの中
+    const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
   /** 上の帯。right は右に置くもの（氏名のメニュー）、left は左の名前の代わりに置くもの */
@@ -795,6 +797,21 @@
     return state.me ? page(body) : top() + `<main>${body}</main>`;
   }
 
+  // ---------------- 手引き（パートリーダーと管理者） ----------------
+  function viewManual() {
+    const doc = window.MANUAL || { title: '', sections: [] };
+    return page(`
+      <div class="title-row"><button class="icon back" data-act="manual-back" aria-label="戻る">${ICON.back}</button><h1>${esc(doc.title)}</h1></div>
+      ${doc.sections.map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('')}`);
+  }
+  /** 手引きから、管理の団員のタブに戻る */
+  function backToAdmin() {
+    state.view = 'admin';
+    state.adminTab = 'members';
+    render();
+    window.scrollTo(0, 0);
+  }
+
   // ---------------- 管理 ----------------
   function viewAdmin() {
     const a = state.admin;
@@ -927,6 +944,7 @@
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
           </div></div>`).join('')}
       </section>`).join('') : '<div class="empty">団員はまだいません</div>'}
+      ${manualLink()}
       <details class="card pad fold"${a.open ? '' : ' open'}>
         <summary><h2>合言葉</h2><span class="badge${a.open ? ' on' : ''}">${a.open ? '設定済み' : '未設定'}</span>${ICON.down}</summary>
         <form data-form="passphrase" class="inline">
@@ -945,7 +963,12 @@
         ${ms.map((m) => `<div class="list-row">
           <div class="main"><b>${esc(m.name)}</b>${m.role !== 'member' ? `<small>${ROLE_LABEL[m.role]}</small>` : ''}</div>
           ${m.role === 'member' ? `<div class="actions tight">${resetButton(m)}</div>` : ''}</div>`).join('')}
-      </section>`).join('') : '<div class="empty">団員はまだいません</div>'}`;
+      </section>`).join('') : '<div class="empty">団員はまだいません</div>'}
+      ${manualLink()}`;
+  }
+  /** 暗証番号の再設定の手引きを開くボタン（団員のタブのいちばん下） */
+  function manualLink() {
+    return `<button class="link center" data-act="go-manual">${esc((window.MANUAL || {}).title || '')}</button>`;
   }
   /** 暗証番号を仮の番号に再設定するボタン（鍵のアイコン） */
   function resetButton(m) {
@@ -1078,6 +1101,8 @@
     'go-home': goHome,
     'go-roster': () => run(openRoster),
     'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
+    'go-manual': () => { state.view = 'manual'; state.flash = ''; state.error = ''; state.tempPin = null; render(); window.scrollTo(0, 0); },
+    'manual-back': () => backToAdmin(),
     'go-admin': () => run(async () => { state.view = 'admin'; state.flash = ''; state.editDay = null; state.daySheet = ''; await loadAdmin(); window.scrollTo(0, 0); }),
     'go-profile': () => run(async () => {
       state.view = 'profile'; state.flash = '';
