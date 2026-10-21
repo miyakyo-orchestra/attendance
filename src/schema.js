@@ -52,4 +52,18 @@ export function initSchema(db) {
     x("UPDATE members SET part = 'Vn' WHERE part IN ('Vn1', 'Vn2')");
     x("INSERT OR REPLACE INTO kv (k, v, exp) VALUES ('migrated:vn', '1', 0)");
   }
+  // 2026-10-21 から Tuba を Tu と書く。団員のパートと、管理画面で変えたパートの一覧を一度だけ直す
+  if (!db.exec("SELECT 1 FROM kv WHERE k = 'migrated:tu'").length) {
+    x("UPDATE members SET part = 'Tu' WHERE part = 'Tuba'");
+    const row = db.exec("SELECT v FROM kv WHERE k = 'parts'")[0];
+    if (row) {
+      try {
+        const parts = JSON.parse(row.v);
+        const next = parts.some((p) => p.id === 'Tu') ? parts.filter((p) => p.id !== 'Tuba')
+          : parts.map((p) => (p.id === 'Tuba' ? { ...p, id: 'Tu' } : p));
+        db.exec("UPDATE kv SET v = ? WHERE k = 'parts'", JSON.stringify(next));
+      } catch (e) { /* 壊れていれば store.js が初めの一覧を使う */ }
+    }
+    x("INSERT OR REPLACE INTO kv (k, v, exp) VALUES ('migrated:tu', '1', 0)");
+  }
 }

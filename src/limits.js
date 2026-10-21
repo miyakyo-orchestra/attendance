@@ -18,7 +18,7 @@ export const PARTS = [
   { id: 'Hr', group: 'winds' },
   { id: 'Tp', group: 'winds' },
   { id: 'Tb', group: 'winds' },
-  { id: 'Tuba', group: 'winds' },
+  { id: 'Tu', group: 'winds' },
   { id: 'Perc', group: 'winds' },
 ];
 // パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
@@ -41,7 +41,7 @@ export const LIMITS = {
   LOCK_SECONDS: 600,
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
-  PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tuba など）
+  PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tu など）
   PART_COUNT: 30,
   PASSKEYS: 10, // 一人が作れるパスキーの数
   CHALLENGE_SECONDS: 300, // パスキーの操作を始めてから終えるまでの時間
