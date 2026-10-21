@@ -414,6 +414,8 @@ main.auth h1 { font-size: 26px; }
 .doc-date { margin: -8px 0 0; font-size: 13px; color: var(--sub); }
 .card.doc { gap: 8px; }
 .doc p { margin: 0; font-size: 14px; line-height: 1.8; }
+.doc p.point strong { display: block; font-size: 15px; font-weight: 700; line-height: 1.6; margin-bottom: 2px; }
+.doc p.point + p.point { margin-top: 6px; }
 
 /* 練習日を足す・直すシート。一覧の上に下から重ねて開く */
 .head-end { display: flex; align-items: center; gap: 8px; }
