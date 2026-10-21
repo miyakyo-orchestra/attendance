@@ -283,6 +283,12 @@
   }
   /** 今日以降でいちばん近い練習日（なければ最後の練習日） */
   function nextDay() { return state.days.find((d) => d.date >= state.today) || state.days[state.days.length - 1] || null; }
+  /** 練習が終わったか。終わりの時刻があればそれを過ぎたら、なければその日が過ぎたら（日本時間） */
+  function isOver(d) {
+    if (d.date < state.today) return true;
+    if (d.date > state.today || !d.en) return false;
+    return d.en <= new Date(Date.now() + 9 * 3600000).toISOString().slice(11, 16);
+  }
   function isMember() { return state.me && state.me.id; }
   function isOfficer() { return state.me && (state.me.role === 'officer' || state.me.role === 'admin'); }
   function isAdmin() { return state.me && state.me.role === 'admin'; }
@@ -697,9 +703,11 @@
   // 出席の人は人数だけにまとめ、押すと名前が出る
   function viewRoster() {
     if (!state.days.length) return page('<div class="empty">練習日はまだありません</div>');
+    // 上の並びには終わっていない練習日だけを出す。終わった日はカレンダーから選ぶ
+    const ahead = state.days.filter((d) => !isOver(d));
     const perDate = {};
-    state.days.forEach((d) => { perDate[d.date] = (perDate[d.date] || 0) + 1; });
-    const chips = state.days.map((d) => {
+    ahead.forEach((d) => { perDate[d.date] = (perDate[d.date] || 0) + 1; });
+    const chips = ahead.map((d) => {
       const p = parseDate(d.date);
       // 同じ日に二つ以上あるときは、月と曜日の代わりに開始の時刻（なければ種類）を出して見分ける
       const small = perDate[d.date] > 1 ? (d.st || d.kind || `${p.m}/${WEEKDAYS[p.wd]}`) : `${p.m}/${WEEKDAYS[p.wd]}`;
@@ -1105,7 +1113,7 @@
   function reloadAll() { return Promise.all([loadAdmin(), loadHome()]); }
   async function openRoster() {
     if (!state.days.length) await loadHome();
-    const d = state.days.find((x) => x.id === state.rosterDay) || nextDay();
+    const d = state.days.find((x) => x.id === state.rosterDay) || state.days.find((x) => !isOver(x)) || nextDay();
     state.view = 'roster';
     state.flash = '';
     if (d) { state.rosterMonth = monthOf(d.date); await loadRoster(d.id); }
