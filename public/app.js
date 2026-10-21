@@ -831,9 +831,9 @@
   }
 
   // ---------------- プライバシーポリシー ----------------
-  /** privacy.js・manual.js の見出しと段落を、同じ形のカードで並べる */
+  /** privacy.js・manual.js の見出しと段落を、同じ形のカードで並べる。段落が { b, t } なら b を太字の一行にする */
   function docSections(doc) {
-    return (doc.sections || []).map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => `<p>${esc(t)}</p>`).join('')}</section>`).join('');
+    return (doc.sections || []).map((sec) => `<section class="card pad doc"><h2>${esc(sec.h)}</h2>${sec.p.map((t) => (typeof t === 'string' ? `<p>${esc(t)}</p>` : `<p class="point"><strong>${esc(t.b)}</strong>${esc(t.t)}</p>`)).join('')}</section>`).join('');
   }
   function viewPrivacy() {
     const doc = window.PRIVACY || { sections: [] };
