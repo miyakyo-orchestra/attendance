@@ -261,6 +261,20 @@ test('前に Vn1・Vn2 で登録した人は Vn にそろう', async () => {
   assert.equal(t.store.db.exec("SELECT part FROM members WHERE name = '新しい人'")[0].part, 'Vn1');
 });
 
+test('前に Tuba で登録した人と、変えたパートの一覧は Tu にそろう', async () => {
+  const t = await ready();
+  await join(t, '前の人', 'Tu');
+  t.store.db.exec("UPDATE members SET part = 'Tuba'");
+  const parts = t.store.parts().map((p) => (p.id === 'Tu' ? { ...p, id: 'Tuba' } : p));
+  t.store.kput('parts', JSON.stringify(parts));
+  t.store.db.exec("DELETE FROM kv WHERE k = 'migrated:tu'"); // 直す前のデータに戻す
+  t.store.init();
+  assert.equal(t.store.db.exec('SELECT part FROM members')[0].part, 'Tu');
+  const ids = t.store.partIds();
+  assert.ok(ids.includes('Tu') && !ids.includes('Tuba'));
+  assert.equal(ids.indexOf('Tu'), ids.indexOf('Tb') + 1);
+});
+
 test('姓と名を分けて登録し、前に登録した人も姓と名に分かれる', async () => {
   const t = await ready();
   // 姓か名が空なら登録できない
@@ -390,7 +404,7 @@ test('パスキーはほかの人のチャレンジやサイトでは作れず�
 
 test('遅刻と早退は時刻を付けて入れられ、時刻は誰にでも見える', async () => {
   const t = await ready();
-  const a = await join(t, '遅れる人', 'Tuba');
+  const a = await join(t, '遅れる人', 'Tu');
   const b = await join(t, '見る人', 'Hr');
   let r = await t.call('answer', { dayId: t.dayId, status: 'late', at: '14:30', reason: '入らない' }, a);
   assert.equal(r.ok, true, r.message);
@@ -405,7 +419,7 @@ test('遅刻と早退は時刻を付けて入れられ、時刻は誰にでも�
   r = await t.call('answer', { dayId: t.dayId, status: 'absent', at: '14:30' }, a);
   assert.equal(r.answer.at, '');
   const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
-  assert.match(csv, /遅れる人,Tuba,欠席,,,/);
+  assert.match(csv, /遅れる人,Tu,欠席,,,/);
 });
 
 test('パートリーダーは練習日を登録できるが、団員の管理はできない', async () => {
@@ -451,7 +465,7 @@ test('団員をまとめて消す', async () => {
 
 test('パートを足し引きできる', async () => {
   const t = await ready();
-  assert.ok((await t.call('info', {})).parts.some((p) => p.id === 'Tuba'));
+  assert.ok((await t.call('info', {})).parts.some((p) => p.id === 'Tu'));
   let r = await t.call('addPart', { id: 'Hp', group: 'strings' }, t.adminToken);
   assert.equal(r.ok, true);
   assert.deepEqual(r.parts.filter((p) => p.group === 'strings').map((p) => p.id), ['Vn', 'Va', 'Vc', 'Cb', 'Hp']);
