@@ -388,6 +388,9 @@ main.auth h1 { font-size: 26px; }
 .auth-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 16px; }
 .auth-bottom .cta { min-height: 56px; }
 .auth-alt.small .link { color: var(--sub); font-size: 13px; }
+.privacy-note { margin-top: -8px; padding: 0 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--sub); }
+.privacy-note p { margin: 0; text-wrap: pretty; }
+.privacy-note .link { font-size: 13px; padding: 12px 0; margin: -12px 0 -10px; }
 
 
 /* 練習日のカレンダー（iPhone のカレンダーにならう） */

@@ -518,8 +518,8 @@
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
           <button class="cta" type="submit">登録する</button>
         </form>
-        <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>
-        <p class="auth-alt small"><button class="link" data-act="go-privacy">プライバシーポリシー</button></p>`;
+        ${privacyNote()}
+        <p class="auth-alt">登録済みの方は<button class="link" data-act="auth-mode" data-mode="login">ログイン</button></p>`;
     } else {
       body = `<h1>ログイン</h1>
         <form data-form="login" class="stack">
@@ -534,6 +534,17 @@
         </div>`;
     }
     return top() + `<main class="auth">${messages()}${body}</main>`;
+  }
+
+  /** 登録ボタンの下に添える、プライバシーポリシーの短い要約。中身は privacy.js の要点と2・7・10項に合わせる */
+  function privacyNote() {
+    return `<div class="privacy-note">
+      <p>預かるのは氏名、パート、暗証番号、出欠です。メールアドレスや学籍番号は預かりません。</p>
+      <p>暗証番号は元に戻せない形で保存し、誰も見られません。</p>
+      <p>欠席理由は本人、パートリーダー、管理者だけが読めます。</p>
+      <p>団の外には渡しません。</p>
+      <button class="link" data-act="go-privacy">プライバシーポリシーの全文</button>
+    </div>`;
   }
 
   // 登録やログインのすぐあとに、パスキーを作るよう勧める
