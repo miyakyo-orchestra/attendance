@@ -46,6 +46,7 @@
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
     more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
+    listview: svg('<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="17.5" r="1.2"/>', 22),
     person: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="10" r="3.2"/><path d="M5.8 18.6c1.3-2.2 3.5-3.4 6.2-3.4s4.9 1.2 6.2 3.4"/>', 26),
     logout: svg('<path d="M14 4h4.5a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>', 20),
     key: svg('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M16.5 6.5l2.5 2.5"/><path d="M14 9l2 2"/>', 20),
@@ -428,16 +429,17 @@
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
    *  center を渡さず left もなければ、左に団の名前を出す（ログインの前） */
-  function top(right, left, center) {
+  function top(right, left, center, cls) {
     const l = left || (center ? '' : '<span class="brand">宮教オケ 出欠</span>');
-    return `<header class="top"><div class="top-l">${l}</div><div class="top-c">${center || ''}</div><div class="top-r">${right || ''}</div></header>`;
+    return `<header class="top${cls ? ' ' + cls : ''}"><div class="top-l">${l}</div><div class="top-c">${center || ''}</div><div class="top-r">${right || ''}</div></header>`;
   }
-  /** ログインのある画面の外枠（上の帯・中身・下のタブ）。o.title は帯の真ん中の名前、o.center は名前の代わりに置くもの、o.back は戻るボタン [data-act, 文字] */
+  /** ログインのある画面の外枠（上の帯・中身・下のタブ）。o.title は帯の真ん中の名前、o.back は戻るボタン [data-act, 文字]。
+   *  o.left・o.right は帯の左と右（自分のメニューの手前）に置くもの、o.cls は帯に足す class */
   function page(body, o) {
     o = o || {};
     const back = o.back ? `<button class="nav-back" data-act="${o.back[0]}">${ICON.back}<span>${esc(o.back[1])}</span></button>` : '';
-    const center = o.center || (o.title ? `<span class="top-title">${esc(o.title)}</span>` : '');
-    return top(whoMenu(), back, center || ' ') + `<main>${body}</main>` + tabs();
+    const center = o.title ? `<span class="top-title">${esc(o.title)}</span>` : '';
+    return top((o.right || '') + whoMenu(), o.left || back, center || ' ', o.cls) + `<main>${body}</main>` + tabs();
   }
   function whoMenu() {
     if (!state.me) return '';
@@ -547,15 +549,20 @@
   // ---------------- 練習日（ホーム） ----------------
   function viewHome() {
     const list = state.homeView === 'list';
-    // カレンダーの下の予定が見えるよう、切り替えは上の帯に置く
+    const body = list ? dayList() : monthView() + agenda(); // 先に描くと、カレンダーの選ぶ日が決まる
+    // カレンダーの下の予定が見えるよう、月の見出しと前後の月・今日のボタンは上の帯に置く。
+    // 右のリストのボタンを押すとリスト（押した形）、もう一度押すとカレンダー
+    const toggle = `<button class="icon view-toggle" data-act="home-view" data-v="${list ? 'calendar' : 'list'}" aria-pressed="${list}" aria-label="リストで見る">${ICON.listview}</button>`;
+    const g = parseDate(state.month + '-01');
+    const left = list ? '<h1 class="mv-title">練習日</h1>' : `<h1 class="mv-title"><small>${g.y}年</small>${g.m}月</h1>`;
+    const nav = list ? '' : `${state.calDate !== state.today ? '<button class="mv-today" data-act="cal-today">今日</button>' : ''}
+        <button class="icon" data-act="month" data-n="-1" aria-label="前の月">${ICON.back}</button>
+        <button class="icon" data-act="month" data-n="1" aria-label="次の月">${ICON.next}</button>`;
     return page(`
       ${messages()}
-      ${list ? dayList() : monthView() + agenda()}
+      ${body}
       ${state.answerSheet ? answerSheet() : ''}
-    `, { center: `<div class="seg top-seg" role="group" aria-label="表示">
-        <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
-        <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
-      </div>` });
+    `, { left, right: nav + toggle, cls: 'home-top' });
   }
 
   /** 練習日のリスト。次の練習（同じ日に二つあれば両方）を大きく出し、その先は月ごとに区切る */
@@ -626,14 +633,7 @@
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
-    const away = state.calDate !== state.today;
     return `<div class="mv">
-      <div class="mv-head">
-        <h2 class="mv-title"><small>${g.y}年</small>${g.m}月</h2>
-        ${away ? '<button class="mv-today" data-act="cal-today">今日</button>' : ''}
-        <button class="icon" data-act="month" data-n="-1" aria-label="前の月">${ICON.back}</button>
-        <button class="icon" data-act="month" data-n="1" aria-label="次の月">${ICON.next}</button>
-      </div>
       ${weekRow()}
       <div class="mv-grid">${cells}</div>
       ${isMember() ? `<div class="legend"><span><span class="dot attend"></span>出席</span><span><span class="dot late"></span>遅刻・早退</span><span><span class="dot absent"></span>欠席</span><span><span class="dot"></span>未回答</span></div>` : ''}
@@ -1469,7 +1469,7 @@
     swipe = null;
     if (!s || s.dir !== 'x') return;
     const n = s.dx < 0 ? 1 : -1;
-    const btn = Math.abs(s.dx) > 50 && s.cal.querySelector(`.icon[data-n="${n}"]`);
+    const btn = Math.abs(s.dx) > 50 && (s.cal.querySelector(`.icon[data-n="${n}"]`) || (s.cal.classList.contains('mv') && app.querySelector(`.top .icon[data-n="${n}"]`))); // ホームのカレンダーの矢印は上の帯にある
     if (!btn) { // 少ししか動かさなかったら元に戻す
       s.grid.style.transition = 'transform .2s ease-out';
       s.grid.style.transform = '';

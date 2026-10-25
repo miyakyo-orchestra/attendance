@@ -55,9 +55,16 @@ a { color: var(--blue); }
 /* 戻るボタン: 左向きの印と、戻り先の名前 */
 .nav-back { display: flex; align-items: center; gap: 0; margin-left: -12px; min-height: 44px; padding: 0 8px 0 4px; background: none; border: none; color: var(--blue); font-size: 17px; white-space: nowrap; }
 .nav-back svg { width: 26px; height: 26px; stroke-width: 2.2; }
-/* ホームではカレンダーとリストの切り替えを上の帯に置く */
-.top-seg { width: 176px; }
-.top-seg button { min-height: 32px; font-size: 13px; }
+/* ホームの上の帯: 左に月（リストでは練習日）の見出し、右に今日・前後の月・リストのボタンと自分のメニュー */
+.top.home-top { display: flex; padding-right: 8px; }
+.home-top .top-l { flex: 1; }
+.home-top .top-c { display: none; }
+.home-top .top-r { align-items: center; gap: 0; }
+.home-top .icon { color: var(--blue); }
+.home-top .mv-today { margin-right: 2px; }
+.view-toggle { border-radius: 10px; }
+.view-toggle svg { width: 22px; height: 22px; }
+.view-toggle[aria-pressed="true"] { background: var(--blue-soft); }
 .brand { font-size: 15px; font-weight: 700; white-space: nowrap; }
 .who { position: relative; }
 /* 右上の名前: 押すとメニューが開くことがわかるよう、下向きの印をつける */
@@ -147,13 +154,15 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .card { background: var(--surface); border-radius: 12px; overflow: hidden; }
 .card.pad { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 /* 畳める面（管理の合言葉、設定の暗証番号） */
-.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 28px; }
+/* 畳んだ面は flex にしない。iPhone の Safari では、閉じていても中身の分の隙間ができて見出しが上に寄るため */
+.card.pad.fold { display: block; }
+.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary h2 { margin: 0; }
 .fold > summary svg { margin-left: auto; color: var(--sub); transition: transform .15s; }
 .fold[open] > summary svg { transform: rotate(180deg); }
-.fold .inline { margin-top: 12px; }
-.fold .fold-body { margin-top: 4px; }
+.fold .inline { margin-top: 16px; }
+.fold .fold-body { margin-top: 16px; }
 
 /* 練習日のリスト */
 .day { width: 100%; display: flex; align-items: center; }
@@ -383,7 +392,6 @@ main.auth h1 { font-size: 26px; }
 
 /* 練習日のカレンダー（iPhone のカレンダーにならう） */
 .mv { margin: 0 -12px; display: flex; flex-direction: column; overflow-x: clip; }
-.mv-head { display: flex; align-items: center; gap: 2px; padding: 0 4px 4px 12px; }
 .mv-title { margin: 0 auto 0 0; font-size: 26px; font-weight: 700; line-height: 1.1; display: flex; align-items: baseline; gap: 6px; }
 .mv-title small { font-size: 13px; font-weight: 500; color: var(--sub); }
 .mv-today { min-height: 34px; padding: 0 14px; border-radius: 999px; border: none; background: var(--surface); box-shadow: var(--shadow); font-size: 14px; font-weight: 500; color: var(--ink); margin-right: 4px; }
