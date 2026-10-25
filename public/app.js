@@ -46,6 +46,8 @@
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
     more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
+    person: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="10" r="3.2"/><path d="M5.8 18.6c1.3-2.2 3.5-3.4 6.2-3.4s4.9 1.2 6.2 3.4"/>', 26),
+    logout: svg('<path d="M14 4h4.5a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>', 20),
     key: svg('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M16.5 6.5l2.5 2.5"/><path d="M14 9l2 2"/>', 20),
   };
 
@@ -424,21 +426,29 @@
     const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
-  /** 上の帯。right は右に置くもの（氏名のメニュー）、left は左の名前の代わりに置くもの */
-  function top(right, left) {
-    return `<header class="top">${left || '<span class="brand">宮教オケ 出欠</span>'}${right || ''}</header>`;
+  /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
+   *  center を渡さず left もなければ、左に団の名前を出す（ログインの前） */
+  function top(right, left, center) {
+    const l = left || (center ? '' : '<span class="brand">宮教オケ 出欠</span>');
+    return `<header class="top"><div class="top-l">${l}</div><div class="top-c">${center || ''}</div><div class="top-r">${right || ''}</div></header>`;
   }
-  /** ログインのある画面の外枠（上の帯・中身・下のタブ） */
-  function page(body, left) {
-    return top(whoMenu(), left) + `<main>${body}</main>` + tabs();
+  /** ログインのある画面の外枠（上の帯・中身・下のタブ）。o.title は帯の真ん中の名前、o.center は名前の代わりに置くもの、o.back は戻るボタン [data-act, 文字] */
+  function page(body, o) {
+    o = o || {};
+    const back = o.back ? `<button class="nav-back" data-act="${o.back[0]}">${ICON.back}<span>${esc(o.back[1])}</span></button>` : '';
+    const center = o.center || (o.title ? `<span class="top-title">${esc(o.title)}</span>` : '');
+    return top(whoMenu(), back, center || ' ') + `<main>${body}</main>` + tabs();
   }
   function whoMenu() {
     if (!state.me) return '';
     const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
-    return `<details class="who"><summary>${label}${ICON.down}</summary><div class="menu">
+    // 右上は人の形のボタンにし、氏名はメニューの頭に出す。ログアウトは区切って赤で
+    return `<details class="who"><summary aria-label="${label}のメニュー">${ICON.person}</summary><div class="menu">
+      <div class="menu-head">${label}</div>
       ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
       <button data-act="go-privacy">プライバシーポリシー</button>
-      <button data-act="logout">ログアウト</button>
+      <hr class="menu-sep">
+      <button class="danger" data-act="logout">ログアウト${ICON.logout}</button>
     </div></details>`;
   }
   function messages() {
@@ -542,10 +552,10 @@
       ${messages()}
       ${list ? dayList() : monthView() + agenda()}
       ${state.answerSheet ? answerSheet() : ''}
-    `, `<div class="seg top-seg" role="group" aria-label="表示">
+    `, { center: `<div class="seg top-seg" role="group" aria-label="表示">
         <button data-act="home-view" data-v="calendar" aria-pressed="${!list}">カレンダー</button>
         <button data-act="home-view" data-v="list" aria-pressed="${list}">リスト</button>
-      </div>`);
+      </div>` });
   }
 
   /** 練習日のリスト。次の練習（同じ日に二つあれば両方）を大きく出し、その先は月ごとに区切る */
@@ -652,13 +662,13 @@
     const past = d.date < state.today;
     return page(`
       <div class="title-block">
-        <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1 class="title-date">${esc(dateLabel(d.date))}</h1></div>
+        <h1 class="title-date">${esc(dateLabel(d.date))}</h1>
         <p class="title-meta">${esc(metaLabel(d))}</p>
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
       ${messages()}
       ${answerForm(d, a, past, ['attend', 'late', 'early', 'absent'])}
-    `);
+    `, { back: ['go-home', '練習日'] });
   }
 
   /** 出欠を答える欄。出欠の入力の画面と、ホームのシートで使う */
@@ -691,9 +701,10 @@
     sheetEnter = false;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-answer"></div>
       <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
+        <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
           <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p></div>
-          <button class="icon" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
+          <button class="icon close-round" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>
       </section>`;
@@ -702,7 +713,7 @@
   // ---------------- パート別の出欠（一覧） ----------------
   // 出席の人は人数だけにまとめ、押すと名前が出る
   function viewRoster() {
-    if (!state.days.length) return page('<div class="empty">練習日はまだありません</div>');
+    if (!state.days.length) return page('<div class="empty">練習日はまだありません</div>', { title: '一覧' });
     // 上の並びには終わっていない練習日だけを出す。終わった日はカレンダーから選ぶ
     const ahead = state.days.filter((d) => !isOver(d));
     const perDate = {};
@@ -722,7 +733,7 @@
       </div>
       ${state.rosterCal ? rosterCalendar() : ''}
       ${r ? `<div class="roster-body${r.day.id === state.rosterDay ? '' : ' loading'}">${rosterBody(r)}</div>` : ''}
-    `);
+    `, { title: '一覧' });
   }
   /** 出欠ごとの人数 */
   function countOf(ms) {
@@ -804,7 +815,7 @@
   function viewProfile() {
     const keys = state.passkeys;
     return page(`
-      <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1>設定</h1></div>
+      <h1 class="large">設定</h1>
       ${messages()}
       <section class="card pad">
         <form data-form="profile" class="stack">
@@ -827,7 +838,7 @@
           <div class="actions"><button class="ghost icon danger" data-act="passkey-delete" data-id="${esc(k.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : ''}
         <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
       </section>` : ''}
-    `);
+    `, { back: ['go-home', '練習日'] });
   }
 
   // ---------------- プライバシーポリシー ----------------
@@ -839,18 +850,18 @@
     const doc = window.PRIVACY || { sections: [] };
     const dates = [`${doc.ENACTED}制定`].concat((doc.REVISED || []).map((d) => `${d}改定`));
     const body = `
-      <div class="title-row"><button class="icon back" data-act="go-home" aria-label="戻る">${ICON.back}</button><h1>プライバシーポリシー</h1></div>
+      <h1 class="large">プライバシーポリシー</h1>
       <p class="doc-date">${dates.map(esc).join('、')}</p>
       ${docSections(doc)}`;
-    return state.me ? page(body) : top() + `<main>${body}</main>`;
+    return state.me ? page(body, { back: ['go-home', '戻る'] }) : top('', `<button class="nav-back" data-act="go-home">${ICON.back}<span>戻る</span></button>`) + `<main>${body}</main>`;
   }
 
   // ---------------- 手引き（パートリーダーと管理者） ----------------
   function viewManual() {
     const doc = window.MANUAL || { title: '', sections: [] };
     return page(`
-      <div class="title-row"><button class="icon back" data-act="manual-back" aria-label="戻る">${ICON.back}</button><h1>${esc(doc.title)}</h1></div>
-      ${docSections(doc)}`);
+      <h1 class="large">${esc(doc.title)}</h1>
+      ${docSections(doc)}`, { back: ['manual-back', '管理'] });
   }
   /** 手引きから、管理の団員のタブに戻る */
   function backToAdmin() {
@@ -863,18 +874,17 @@
   // ---------------- 管理 ----------------
   function viewAdmin() {
     const a = state.admin;
-    if (!a) return page('<div class="empty">読み込み中</div>');
+    if (!a) return page('<div class="empty">読み込み中</div>', { title: '管理' });
     const admin = isAdmin();
     // パートリーダーには練習日と団員（暗証番号の再設定だけ）
     const tabList = admin ? ADMIN_TABS : ADMIN_TABS.filter(([k]) => k === 'days' || k === 'members');
     const tab = tabList.some(([k]) => k === state.adminTab) ? state.adminTab : 'days';
     const body = { days: adminDays, members: adminMembers, parts: adminParts, records: adminRecords }[tab](a);
     return page(`
-      <h1>管理</h1>
       ${`<div class="seg" role="group" aria-label="管理の項目">${tabList.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>`}
       ${state.daySheet ? (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '') : messages()}
       ${body}
-    `);
+    `, { title: '管理' });
   }
 
   // 管理: 練習日（パートリーダーも使える）
@@ -921,9 +931,10 @@
         </form>`;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-sheet"></div>
       <section class="sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${title}">
+        <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
           <div class="label-row"><h2>${title}</h2>${edit ? '' : tip('選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
-          <div class="head-end">${!edit && state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}<button class="icon" data-act="close-sheet" aria-label="閉じる">${ICON.close}</button></div>
+          <div class="head-end">${!edit && state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}<button class="icon close-round" data-act="close-sheet" aria-label="閉じる">${ICON.close}</button></div>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${body}</div>
       </section>`;
@@ -1479,6 +1490,27 @@
   }
   app.addEventListener('touchend', endSwipe);
   app.addEventListener('touchcancel', () => { if (swipe && swipe.grid) { swipe.grid.style.transform = ''; } swipe = null; });
+
+  // シートは上の端（つまみと見出し）を下になぞると閉じる。指についてきて、少しだけなら元に戻る
+  let pull = null;
+  app.addEventListener('touchstart', (ev) => {
+    const head = ev.target.closest('.sheet-head, .grabber');
+    pull = head && ev.touches.length === 1 ? { sheet: head.closest('.sheet'), y: ev.touches[0].clientY, dy: 0 } : null;
+  }, { passive: true });
+  app.addEventListener('touchmove', (ev) => {
+    if (!pull) return;
+    pull.dy = Math.max(0, ev.touches[0].clientY - pull.y);
+    pull.sheet.style.transition = 'none';
+    pull.sheet.style.transform = `translateY(${pull.dy}px)`;
+  }, { passive: true });
+  app.addEventListener('touchend', () => {
+    const p = pull;
+    pull = null;
+    if (!p) return;
+    p.sheet.style.transition = 'transform .2s ease-out';
+    p.sheet.style.transform = '';
+    if (p.dy > 80) { const x = p.sheet.querySelector('[data-act^="close-"]'); if (x) x.click(); }
+  });
 
   // メニューの外を押したら閉じる
   document.addEventListener('click', (ev) => {
