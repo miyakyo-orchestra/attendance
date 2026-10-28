@@ -83,7 +83,12 @@ export class Store {
     if (s.last_used + LIMITS.SESSION_DAYS * DAY_MS < now) { this.db.exec('DELETE FROM sessions WHERE token = ?', hash); return null; }
     // 使った時刻は1日に1回だけ書き直す（書き込みを減らす）
     if (now - s.last_used > DAY_MS) this.db.exec('UPDATE sessions SET last_used = ? WHERE token = ?', now, hash);
-    if (!s.member_id) return { member: null, role: 'admin', session: hash };
+    if (!s.member_id) {
+      // 管理用パスワードでのログインは、作ったときのパスワードに結び付けてある。パスワードを変えたり消したりしたら、前のログインは使えない
+      const pw = String(this.env.ADMIN_PASSWORD || '');
+      if (!pw || s.admin_pw !== await adminTag(token, pw)) { this.db.exec('DELETE FROM sessions WHERE token = ?', hash); return null; }
+      return { member: null, role: 'admin', session: hash };
+    }
     const m = this.member(s.member_id);
     if (!m) { this.db.exec('DELETE FROM sessions WHERE token = ?', hash); return null; }
     return { member: m, role: m.role, session: hash };
@@ -92,8 +97,10 @@ export class Store {
   async newSession(memberId) {
     const token = randomId(32);
     const now = this.now();
+    // 管理用パスワードでのログインには、そのときのパスワードとの結び付きを置く（団員のログインは空）
+    const tag = memberId ? '' : await adminTag(token, String(this.env.ADMIN_PASSWORD || ''));
     this.db.exec('DELETE FROM sessions WHERE last_used < ?', now - LIMITS.SESSION_DAYS * DAY_MS); // 期限切れの掃除
-    this.db.exec('INSERT INTO sessions (token, member_id, created, last_used) VALUES (?, ?, ?, ?)', await sha256(token), memberId || '', now, now);
+    this.db.exec('INSERT INTO sessions (token, member_id, created, last_used, admin_pw) VALUES (?, ?, ?, ?, ?)', await sha256(token), memberId || '', now, now, tag);
     return token;
   }
   /** ログインの印を作り、ログインできたときの応答を返す。m が null なら管理用パスワードでのログイン */
@@ -101,6 +108,17 @@ export class Store {
     const token = await this.newSession(m ? m.id : '');
     const me = this.meOf(m ? { member: m, role: m.role } : { member: null, role: 'admin' });
     return Object.assign({ ok: true, token, me }, extra);
+  }
+
+  /**
+   * 暗証番号の誤りを数える。5回ごとに止め、止めるたびに止める時間を倍にする（10分、20分、40分…最長1日）。
+   * 数え直すのは正しく入れたときと、再設定したときだけ（止まるたびに数え直すと、時間をかければ4桁を当てられるため）
+   */
+  pinFailed(m) {
+    const n = m.failures + 1;
+    const lock = n % LIMITS.PIN_FAILURES === 0;
+    const seconds = Math.min(LIMITS.LOCK_SECONDS * 2 ** (n / LIMITS.PIN_FAILURES - 1), LIMITS.PIN_LOCK_MAX_SECONDS);
+    this.db.exec('UPDATE members SET failures = ?, locked_until = ? WHERE id = ?', n, lock ? this.now() + seconds * 1000 : 0, m.id);
   }
 
   /** 合言葉を確かめる。同じ接続元から続けて間違えたら止める */
@@ -263,12 +281,10 @@ const PUBLIC = {
     this.checkGate(c.ip);
     const m = found && this.member(found.id);
     if (!m || m.pin !== found.pin) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
-    if (m.locked_until > this.now()) return fail('暗証番号の誤りが続いたため、しばらくログインできません。10分ほどあけてください。', 'LOCKED');
+    if (m.locked_until > this.now()) return fail(PIN_LOCKED, 'LOCKED');
     if (!ok) {
       this.gateFailed(c.ip);
-      const n = m.failures + 1;
-      const lock = n >= LIMITS.PIN_FAILURES;
-      this.db.exec('UPDATE members SET failures = ?, locked_until = ? WHERE id = ?', lock ? 0 : n, lock ? this.now() + LIMITS.LOCK_SECONDS * 1000 : 0, m.id);
+      this.pinFailed(m);
       return fail('氏名か暗証番号が違います。', 'WRONG_PIN');
     }
     this.db.exec('UPDATE members SET failures = 0, locked_until = 0 WHERE id = ?', m.id);
@@ -383,12 +399,9 @@ const PRIVATE = {
     // 照合のあいだに変わっているかもしれないので、読み直してから書く
     const m = this.member(who.member.id);
     if (!m) return fail('団員が見つかりません。', 'NOT_FOUND');
-    if (m.locked_until > this.now()) return fail('暗証番号の誤りが続いたため、しばらく変えられません。10分ほどあけてください。', 'LOCKED');
+    if (m.locked_until > this.now()) return fail(PIN_LOCKED, 'LOCKED');
     if (!ok || m.pin !== who.member.pin) {
-      // ログインと同じく、続けて間違えたら止める
-      const n = m.failures + 1;
-      const lock = n >= LIMITS.PIN_FAILURES;
-      this.db.exec('UPDATE members SET failures = ?, locked_until = ? WHERE id = ?', lock ? 0 : n, lock ? this.now() + LIMITS.LOCK_SECONDS * 1000 : 0, m.id);
+      this.pinFailed(m); // ログインと同じく、続けて間違えたら止める
       return fail('今の暗証番号が違います。', 'WRONG_PIN');
     }
     this.db.txn(() => {
@@ -638,6 +651,9 @@ function dayFields(p) {
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
 }
+const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
+/** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */
+function adminTag(token, password) { return sha256(token + '\n' + password); }
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
 function userError(message, code) { const e = new Error(message); e.userMessage = message; e.code = code; return e; }
 

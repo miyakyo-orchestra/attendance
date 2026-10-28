@@ -40,6 +40,11 @@ export function initSchema(db) {
   // ログインの印。token は元に戻せない形（SHA-256）で置く。member_id が空なら管理用パスワードでのログイン
   x(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, member_id TEXT NOT NULL DEFAULT '',
     created INTEGER NOT NULL, last_used INTEGER NOT NULL)`);
+  // 管理用パスワードでのログインに、そのときのパスワードとの結び付きを置く（2026-10-28 から）。
+  // 前からある管理用パスワードのログインは空になり、使えなくなる（入り直してもらう）
+  if (!hasColumn('sessions', 'admin_pw')) {
+    x("ALTER TABLE sessions ADD COLUMN admin_pw TEXT NOT NULL DEFAULT ''");
+  }
   // パスキー。id は認証器が決める番号（base64url）、jwk は公開鍵、alg は署名の方式
   x(`CREATE TABLE IF NOT EXISTS passkeys (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, jwk TEXT NOT NULL,
     alg INTEGER NOT NULL, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`);
