@@ -104,6 +104,41 @@ test('暗証番号を5回間違えると10分止まる', async () => {
   assert.equal((await t.call('login', { name: '佐藤', pin: '2468' })).ok, true);
 });
 
+test('暗証番号の誤りは止まったあとも数え続け、止める時間は倍に伸び、1日を上限にする', async () => {
+  const t = await ready();
+  await join(t, '高橋', 'Va', '2468');
+  const miss5 = async (ip) => { for (let i = 0; i < 5; i++) assert.equal((await t.call('login', { name: '高橋', pin: '0000' }, undefined, ip)).code, 'WRONG_PIN'); };
+  await miss5('3.3.3.1');
+  t.advance(601 * 1000);
+  await miss5('3.3.3.2'); // 2回目は20分
+  t.advance(601 * 1000);
+  assert.equal((await t.call('login', { name: '高橋', pin: '2468' })).code, 'LOCKED');
+  t.advance(600 * 1000);
+  // 何度も止まると1日まで伸びる（時間をかけても4桁を当てられないように）
+  for (let k = 3; k <= 10; k++) {
+    await miss5('3.3.3.' + k);
+    t.advance(86400 * 1000 - 1000);
+    if (k >= 9) assert.equal((await t.call('login', { name: '高橋', pin: '2468' })).code, 'LOCKED');
+    t.advance(1001);
+  }
+  // 正しく入れたら数え直す
+  assert.equal((await t.call('login', { name: '高橋', pin: '2468' })).ok, true);
+  for (let i = 0; i < 4; i++) await t.call('login', { name: '高橋', pin: '0000' }, undefined, '4.4.4.4');
+  assert.equal((await t.call('login', { name: '高橋', pin: '2468' })).ok, true);
+});
+
+test('管理用パスワードを変えたり消したりすると、前のパスワードでのログインは使えない', async () => {
+  const t = await ready();
+  assert.equal((await t.call('adminData', {}, t.adminToken)).ok, true);
+  t.store.env.ADMIN_PASSWORD = 'new-pass';
+  assert.equal((await t.call('adminData', {}, t.adminToken)).code, 'UNAUTHORIZED');
+  assert.equal((await t.call('adminLogin', { password: 'admin-pass' })).code, 'WRONG_PASSWORD');
+  const fresh = await t.call('adminLogin', { password: 'new-pass' });
+  assert.equal((await t.call('adminData', {}, fresh.token)).ok, true);
+  t.store.env.ADMIN_PASSWORD = '';
+  assert.equal((await t.call('adminData', {}, fresh.token)).code, 'UNAUTHORIZED');
+});
+
 test('欠席理由は本人とパートリーダー・管理者にだけ返す', async () => {
   const t = await ready();
   const absent = await join(t, '欠席する人', 'Va');
