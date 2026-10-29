@@ -396,6 +396,16 @@
     state.flash = '';
     render();
     window.scrollTo(0, 0);
+    // 下のタブや戻るボタンで来るたびに、練習日と自分の出欠を取り直す（ホーム画面のアプリには再読み込みのボタンがないため）。
+    // 取り直すあいだにシートを開いたり文字を打ち始めていたら、描き直して消さないよう見送る
+    if (state.me && isMember()) {
+      const err = state.error;
+      loadHome().then((ok) => {
+        if (!ok) { state.error = err; return; } // 電波が悪いときは、開いていた内容のまま黙って出しておく
+        const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+        if (state.view === 'home' && !state.busy && !app.querySelector('.sheet') && !typing) render();
+      });
+    }
   }
 
   // 出欠の入力・設定・プライバシーポリシーの画面を開いたら、ブラウザの履歴を一つ積む。
@@ -1123,7 +1133,7 @@
   /** 練習日を変えたあとに、管理画面とホームの両方を読み直す */
   function reloadAll() { return Promise.all([loadAdmin(), loadHome()]); }
   async function openRoster() {
-    if (!state.days.length) await loadHome();
+    await loadHome(); // 一覧のタブを押すたびに練習日も取り直す（足された日や消された日を出すため）
     const d = state.days.find((x) => x.id === state.rosterDay) || state.days.find((x) => !isOver(x)) || nextDay();
     state.view = 'roster';
     state.flash = '';
