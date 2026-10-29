@@ -760,7 +760,7 @@
       const sorted = ms.slice().sort((x, y) => order[x.status] - order[y.status]);
       return `<section class="card"><div class="part-head"><h2>${esc(pid)}</h2><span>${bits.join('  ')}</span></div>
           ${sorted.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
-            ${showReasons && 'reason' in m ? `<p class="reason${m.reason ? '' : ' none'}">${m.reason ? esc(m.reason) : '理由の記入なし'}</p>` : ''}</div>`).join('')}
+            ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
         </section>`;
     }).join('');
     const groupLabel = { all: '全体', strings: '弦', winds: '管打' }[state.rosterGroup];
