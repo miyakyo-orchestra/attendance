@@ -316,7 +316,6 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .person-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; font-size: 17px; }
 .person .pill { padding: 3px 10px; }
 .reason { margin: 0 0 4px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.reason.none { color: var(--sub); }
 
 /* 管理画面 */
 .section-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
