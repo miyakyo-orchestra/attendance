@@ -19,7 +19,7 @@ import {
 
 export { GROUPS, LIMITS, PARTS, ROLES, SECTIONS, STATUS_LABEL, STATUSES } from './limits.js';
 
-/** パートリーダーか管理者か（欠席理由を読め、練習日を登録できる） */
+/** パートリーダーか管理者か（欠席理由を読める） */
 function isOfficer(role) { return role === 'officer' || role === 'admin'; }
 /** 練習日の管理の画面に入れるか（パートリーダー・セクションリーダー・管理者） */
 function isLead(who) { return isOfficer(who.role) || !!(who.member && SECTIONS[who.member.lead]); }
@@ -550,7 +550,7 @@ const PRIVATE = {
     return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, sections: SECTIONS, parts: this.parts() };
   }],
 
-  saveDay: ['officer', function (p, who) {
+  saveDay: ['admin', function (p, who) {
     const date = String(p.date || '');
     if (!isDate(date)) return fail('日付を入れてください。');
     const f = dayFields(p, this.partIds());
@@ -576,7 +576,7 @@ const PRIVATE = {
   }],
 
   /** 同じ種類・時刻・メモの練習日を、いくつもの日付にまとめて足す */
-  saveDays: ['officer', function (p, who) {
+  saveDays: ['admin', function (p, who) {
     const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
     if (!dates.length) return fail('日付を選んでください。');
     if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
@@ -604,7 +604,7 @@ const PRIVATE = {
     return { ok: true, id: row.id, days: this.listDays() };
   }],
 
-  deleteDay: ['officer', function (p) {
+  deleteDay: ['admin', function (p) {
     const id = String(p.id || '');
     this.db.txn(() => this.removeDays([id]));
     return { ok: true, days: this.listDays() };

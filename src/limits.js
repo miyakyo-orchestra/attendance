@@ -29,7 +29,7 @@ export const GROUPS = ['strings', 'winds'];
 export const SECTIONS = { strings: '弦', woodwinds: '木管', brass: '金管' };
 export const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
 
-// 役割: member（団員）・officer（パートリーダー。欠席理由を読め、練習日を登録できる）・admin（管理者）
+// 役割: member（団員）・officer（パートリーダー。欠席理由を読め、自分のパートの内容（パート練習など）を書ける）・admin（管理者）
 export const ROLES = ['member', 'officer', 'admin'];
 
 export const LIMITS = {

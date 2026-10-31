@@ -457,7 +457,7 @@ test('遅刻と早退は時刻を付けて入れられ、時刻は誰にでも�
   assert.match(csv, /遅れる人,Tu,欠席,,,/);
 });
 
-test('パートリーダーは練習日を登録できるが、団員の管理はできない', async () => {
+test('パートリーダーは練習日そのものを足す・直す・消すことも、団員の管理もできない', async () => {
   const t = await ready();
   const o = await join(t, 'パートリーダーの人', 'Fl');
   const id = (await t.call('home', {}, o)).me.id;
@@ -466,8 +466,9 @@ test('パートリーダーは練習日を登録できるが、団員の管理�
   assert.equal(data.ok, true);
   assert.equal('open' in data, false); // 合言葉の状態や役割の一覧は管理者だけ
   assert.equal(data.members.some((x) => 'pin' in x || 'created_at' in x), false);
-  assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, o)).ok, true);
-  assert.equal((await t.call('deleteDay', { id: t.dayId }, o)).ok, true);
+  assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, o)).code, 'FORBIDDEN');
+  assert.equal((await t.call('saveDay', { id: t.dayId, date: '2026-10-18' }, o)).code, 'FORBIDDEN');
+  assert.equal((await t.call('deleteDay', { id: t.dayId }, o)).code, 'FORBIDDEN');
   assert.equal((await t.call('setRole', { id, role: 'admin' }, o)).code, 'FORBIDDEN');
   assert.equal((await t.call('exportCsv', {}, o)).code, 'FORBIDDEN');
   const m = await join(t, '団員', 'Ob');
@@ -695,10 +696,9 @@ test('パートごとの内容は、パートリーダーは自分のパート�
   const lead = await t.call('adminData', {}, vnToken);
   assert.equal(lead.ok, true);
   assert.equal(lead.members, undefined);
-  // パートリーダーが練習日を直すときも、ほかの人の内容は変えられない
+  // パートリーダーは練習日そのもの（日付・種類・時刻）を直せない
   const day = { id: t.dayId, date: '2026-10-17', kind: '分奏' };
-  assert.equal((await t.call('saveDay', Object.assign({ splits: [] }, day), hrToken)).code, 'FORBIDDEN');
-  assert.equal((await t.call('saveDay', Object.assign({ splits: r.days[0].splits }, day), hrToken)).ok, true);
+  assert.equal((await t.call('saveDay', Object.assign({ splits: r.days[0].splits }, day), hrToken)).code, 'FORBIDDEN');
 });
 
 test('中の予定があるときは、予定ごとに出欠をとる', async () => {

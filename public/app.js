@@ -1010,7 +1010,7 @@
     `, { title: '管理' });
   }
 
-  // 管理: 練習日（パートリーダーも使える）
+  // 管理: 練習日（足す・直す・消すのは管理者。パートリーダーとセクションリーダーはパートごとの内容だけ）
   function adminDays(a) {
     // 一月ずつ出し、左右の矢印かなぞりで前後の月に替える。はじめは今月
     const ym = state.adminMonth || monthOf(state.today);
@@ -1019,7 +1019,7 @@
     const ds = a.days.filter((d) => monthOf(d.date) === ym);
     const away = ym !== monthOf(state.today);
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span>${isOfficer() ? `<button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button>` : ''}</div></div>
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span>${isAdmin() ? `<button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button>` : ''}</div></div>
       </section>
       <div class="adm-month">
         <div class="adm-month-head">
@@ -1034,7 +1034,7 @@
   }
   function adminDayRow(d) {
     return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), ...(d.splits || []).map((sp) => sp.kind + ' ' + sp.parts.join(' ')), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight">${isOfficer() ? `<button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button>` : ''}${isOfficer() || !d.noentry ? `<button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button>` : ''}${isOfficer() ? `<button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`;
+          <div class="actions tight">${isAdmin() ? `<button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button>` : ''}${isAdmin() || !d.noentry ? `<button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button>` : ''}${isAdmin() ? `<button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
@@ -1043,8 +1043,8 @@
     const title = edit ? '練習日を直す' : '練習日を足す';
     const enter = sheetEnter;
     sheetEnter = false;
-    // セクションリーダー（パートリーダーでない人）は、パートごとの内容だけを直す
-    const body = edit && !isOfficer() ? `<form data-form="splits" class="form-grid">
+    // 管理者でない人（パートリーダー・セクションリーダー）は、パートごとの内容だけを直す
+    const body = edit && !isAdmin() ? `<form data-form="splits" class="form-grid">
           <div class="full"><b>${esc(dateLabel(e.date))}</b> <span class="title-meta">${esc(metaLabel(e))}</span></div>
           ${splitEditor()}
           <button class="cta full" type="submit">保存する</button>
