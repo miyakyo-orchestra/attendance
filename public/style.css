@@ -492,9 +492,14 @@ body.sheet-open { overflow: hidden; }
 .pick-pill[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
 .split-add .ghost { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--blue); }
 .split-add .ghost:disabled { color: var(--grey); }
-/* 一覧で、同じ内容のパートをまとめた見出し */
-.plan-label { display: flex; align-items: center; gap: 8px; margin: 6px 0 -2px; padding: 0 4px; font-size: 15px; font-weight: 700; }
-.plan-label .ag-bar { height: 18px; }
+/* 一覧で、パート名の横に添える分奏などの内容 */
+.plan-chip { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; vertical-align: 2px; white-space: nowrap; }
+.plan-chip.part { background: var(--part-soft); color: var(--part); }
+.plan-chip.tutti { background: var(--tutti-soft); color: var(--tutti); }
+.plan-chip.stage { background: var(--stage-soft); color: var(--stage); }
+/* ホームのリストで、その日の練習の下に出す自分のパートの内容 */
+.sub-plan { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 15px; color: var(--ink); }
+.sub-plan .ag-bar { height: 16px; align-self: center; }
 /* 管理者の団員の行。役割とセクションリーダーの二つの選ぶ欄を、氏名の下の段に並べる */
 .member-row { flex-wrap: wrap; }
 .member-row .actions { flex-basis: 100%; display: flex; gap: 8px; }
