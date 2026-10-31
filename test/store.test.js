@@ -143,12 +143,15 @@ test('欠席理由は本人とパートリーダー・管理者にだけ返す',
   const t = await ready();
   const absent = await join(t, '欠席する人', 'Va');
   const other = await join(t, 'ほかの団員', 'Fl');
-  const officer = await join(t, 'パートリーダーの人', 'Hr');
+  const officer = await join(t, 'パートリーダーの人', 'Va');
+  const otherOfficer = await join(t, 'ほかのパートリーダー', 'Hr');
   await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '体調不良' }, absent);
   await t.call('answer', { dayId: t.dayId, status: 'attend' }, other);
   const ids = (await t.call('adminData', {}, t.adminToken)).members;
   const officerId = ids.find((m) => m.name === 'パートリーダーの人').id;
   assert.equal((await t.call('setRole', { id: officerId, role: 'officer' }, t.adminToken)).ok, true);
+  const otherOfficerId = ids.find((m) => m.name === 'ほかのパートリーダー').id;
+  assert.equal((await t.call('setRole', { id: otherOfficerId, role: 'officer' }, t.adminToken)).ok, true);
 
   const find = (r, name) => r.members.find((m) => m.name === name);
   const byOther = await t.call('roster', { dayId: t.dayId }, other);
@@ -160,6 +163,8 @@ test('欠席理由は本人とパートリーダー・管理者にだけ返す',
 
   assert.equal(find(await t.call('roster', { dayId: t.dayId }, absent), '欠席する人').reason, '体調不良');
   assert.equal(find(await t.call('roster', { dayId: t.dayId }, officer), '欠席する人').reason, '体調不良');
+  // パートリーダーが読めるのは自分のパートの人の理由だけ
+  assert.equal(JSON.stringify(await t.call('roster', { dayId: t.dayId }, otherOfficer)).includes('体調不良'), false);
   assert.equal(find(await t.call('roster', { dayId: t.dayId }, t.adminToken), '欠席する人').reason, '体調不良');
 });
 

@@ -515,7 +515,9 @@ const PRIVATE = {
     const row = this.db.exec('SELECT id, date, kind, st, en, note, splits FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
     if (!row) return fail('練習日が見つかりません。', 'NOT_FOUND');
     const day = withSplits(row);
+    // 欠席理由を読めるのは、本人、管理者、その人と同じパートのパートリーダー（2026-10-31 から。前はパートリーダーなら全員分）
     const canRead = isOfficer(who.role);
+    const readsReason = (m) => who.role === 'admin' || m.id === selfId || (who.role === 'officer' && !!who.member && who.member.part === m.part);
     const selfId = who.member ? who.member.id : '';
     const all = this.db.exec('SELECT member_id, slot, status, reason, at FROM answers WHERE day_id = ?', day.id);
     const got = {};
@@ -526,7 +528,7 @@ const PRIVATE = {
         const a = got[m.id + '|' + it.slot];
         const one = { slot: it.slot, kind: it.kind, st: it.st, en: it.en, status: a ? a.status : 'none' };
         if (a && a.at) one.at = a.at;
-        if (a && a.status === 'absent' && (canRead || m.id === selfId)) one.reason = a.reason || '';
+        if (a && a.status === 'absent' && readsReason(m)) one.reason = a.reason || '';
         return one;
       });
       const out = { id: m.id, name: m.name, part: m.part, status: overall(items.map((x) => x.status)) };

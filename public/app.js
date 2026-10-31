@@ -46,6 +46,7 @@
     cal: svg(CALENDAR, 20),
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
+    note: svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.7A8 8 0 1 1 21 12z"/>', 14),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
     more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
     listview: svg('<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="17.5" r="1.2"/>', 22),
@@ -78,7 +79,7 @@
     rosterDay: '',
     rosterCache: {}, // 一度読んだ練習日の一覧。日付を押したらまずこれを出し、裏で読み直す
     rosterGroup: 'all',
-    rosterReasons: true,
+    openReasons: [], // 一覧で欠席理由を開いている人
     rosterCal: false,
     rosterMonth: '',
     passkeys: null, // 自分のパスキーの一覧（設定の画面）
@@ -773,7 +774,7 @@
         <div class="reason-box"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
             <label for="reason">欠席の理由 任意</label>
-            ${tip('理由を読める人', '理由を読めるのは本人とパートリーダーと管理者だけです。')}
+            ${tip('理由を読める人', '理由を読めるのは本人と、同じパートのパートリーダーと、管理者だけです。')}
           </div>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
@@ -851,7 +852,6 @@
     const shown = r.members.filter((m) => groupParts.includes(m.part));
     const t = countOf(shown);
     const all = shown.length || 1;
-    const showReasons = state.rosterReasons;
     // 全パートに共通する中の予定（合奏など）。上のまとめにその日の内容と並べて出す
     const allParts = (r.parts || state.parts).map((p) => p.id);
     const common = (r.day.splits || []).filter((x) => allParts.every((id) => x.parts.includes(id)));
@@ -870,18 +870,27 @@
       const plan = (r.day.splits || []).filter((x) => x.parts.includes(pid) && !common.includes(x))
         .map((sp) => metaLabel({ kind: sp.kind, st: sp.st, en: sp.en })).join('　');
       const head = `<div class="part-head"><div class="part-name"><h2>${esc(pid)}</h2>${plan ? `<p class="part-plan">${esc(plan)}</p>` : ''}</div><span>${bits.join('  ')}</span></div>`;
-      // 予定ごとに答えるパートは、予定を列にした表にする。見出しに予定の名前を一度だけ出し、各人は点を並べる
+      // 欠席理由が届いている人（本人・自分のパートの人。管理者は全員）は、名前を押すと理由が開く。名前の右の小さな吹き出しが目印
+      const reasonsOf = (m) => (m.items ? m.items.filter((x) => x.reason).map((x) => [x.kind || '練習', x.reason]) : m.reason ? [['', m.reason]] : []);
+      const row = (m, cells) => {
+        const rs = reasonsOf(m);
+        const name = `<span class="person-name">${esc(m.name)}${rs.length ? `<i class="has-reason" aria-hidden="true">${ICON.note}</i>` : ''}</span>`;
+        if (!rs.length) return `<div class="person"><div class="person-row">${name}${cells}</div></div>`;
+        const open = state.openReasons.includes(m.id);
+        return `<div class="person"><button class="person-row" data-act="toggle-reason" data-id="${esc(m.id)}" aria-expanded="${open}">${name}${cells}</button>
+          ${open ? rs.map(([k, t]) => `<p class="reason">${k ? `<span class="reason-kind">${esc(k)}</span>` : ''}${esc(t)}</p>`).join('') : ''}</div>`;
+      };
+      // 予定ごとに答えるパートは、予定を列にした表にする。見出しに予定の名前を一度だけ出し、各人はその列に点を並べる。
+      // 見出しと各人の行は同じ列の幅（grid）にして、点が見出しの真下に来るようにする
       const cols = ms[0].items;
       if (cols) {
-        return `<section class="card">${head}
+        return `<section class="card mx" style="--cols:${cols.length}">${head}
           <div class="mx-head" aria-hidden="true"><span></span>${cols.map((c) => `<span>${esc(c.kind || '練習')}</span>`).join('')}</div>
-          ${sorted.map((m) => `<div class="person"><div class="person-row mx-row"><span class="person-name">${esc(m.name)}</span>${m.items.map((x) => `<span class="mx-cell"><i class="dot ${x.status}"></i>${x.at ? `<small>${esc(x.at)}</small>` : ''}<span class="sr">${esc((x.kind || '練習') + ' ' + statusText(x))}</span></span>`).join('')}</div>
-            ${showReasons ? m.items.filter((x) => x.reason).map((x) => `<p class="reason"><span class="reason-kind">${esc(x.kind || '練習')}</span>${esc(x.reason)}</p>`).join('') : ''}</div>`).join('')}
+          ${sorted.map((m) => row(m, m.items.map((x) => `<span class="mx-cell"><i class="dot ${x.status}"></i>${x.at ? `<small>${esc(x.at)}</small>` : ''}<span class="sr">${esc((x.kind || '練習') + ' ' + statusText(x))}</span></span>`).join(''))).join('')}
         </section>`;
       }
       return `<section class="card">${head}
-          ${sorted.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
-            ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
+          ${sorted.map((m) => row(m, `<span class="pill ${m.status}">${esc(statusText(m))}</span>`)).join('')}
         </section>`;
     };
     const sections = groupParts.map(partSection).join('');
@@ -897,7 +906,6 @@
           <div class="seg" role="group" aria-label="絞り込み">
             ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
           </div>
-          ${r.canReadReasons ? `<button class="link" data-act="roster-reasons" aria-pressed="${showReasons}">${showReasons ? '理由を隠す' : '理由を見る'}</button>` : ''}
         </div>
         ${sections || '<div class="empty">団員はまだいません</div>'}`;
   }
@@ -1411,7 +1419,8 @@
     // 一覧
     'roster-day': (el) => pickRosterDay(el.dataset.id),
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
-    'roster-reasons': () => { state.rosterReasons = !state.rosterReasons; render(); },
+    // 名前を押すと、その人の欠席理由を開く・閉じる
+    'toggle-reason': (el) => { const id = el.dataset.id; state.openReasons = state.openReasons.includes(id) ? state.openReasons.filter((x) => x !== id) : [...state.openReasons, id]; render(); },
     'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
 
     // 設定のパスキー

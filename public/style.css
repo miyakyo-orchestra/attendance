@@ -320,14 +320,20 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .part-name { display: flex; flex-direction: column; min-width: 0; }
 .part-name h2 { margin: 0; font-size: 17px; }
 .part-plan { margin: 0; font-size: 13px; color: var(--sub); }
-/* 予定ごとに答えるパートの表。見出しに予定の名前を一度だけ出し、各人はその列に点を並べる */
-.mx-head { display: flex; padding: 8px 16px 0; font-size: 11px; color: var(--sub); }
-.mx-head span:first-child, .mx-row .person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mx-head span + span, .mx-cell { flex: none; width: 58px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mx-row { justify-content: flex-start; gap: 0; }
-.mx-cell { display: inline-flex; align-items: center; justify-content: center; gap: 3px; }
+/* 予定ごとに答えるパートの表。見出しと各人の行を同じ列の幅（grid）にし、点を見出しの真下にそろえる */
+.mx .mx-head, .mx .person-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(var(--cols), 56px); align-items: center; gap: 0; }
+.mx-head { padding: 8px 16px 0; font-size: 11px; color: var(--sub); }
+.mx-head span { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 点は列の真ん中。遅刻・早退の時刻は点の下に小さく出し、点の位置を動かさない */
+.mx-cell { position: relative; display: flex; align-items: center; justify-content: center; align-self: stretch; min-height: 40px; }
 .mx-cell .dot { width: 9px; height: 9px; flex: none; }
-.mx-cell small { font-size: 11px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.mx-cell small { position: absolute; left: 0; right: 0; top: calc(50% + 7px); font-size: 11px; line-height: 1.1; text-align: center; color: var(--sub); font-variant-numeric: tabular-nums; }
+.mx .person { padding-top: 4px; padding-bottom: 4px; }
+.person-name { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
+/* 欠席理由が見られる人の目印と、押すと開く行 */
+.has-reason { flex: none; display: inline-grid; color: var(--sub); }
+button.person-row { width: 100%; padding: 0; border: none; background: none; color: inherit; font: inherit; font-size: 17px; text-align: left; }
+.person-row[aria-expanded="true"] .has-reason { color: var(--blue); }
 .reason-kind { color: var(--sub); margin-right: 8px; }
 .person { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; }
 .person-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; font-size: 17px; }
