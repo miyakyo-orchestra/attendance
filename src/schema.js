@@ -32,6 +32,16 @@ export function initSchema(db) {
   if (!hasColumn('answers', 'at')) {
     x("ALTER TABLE answers ADD COLUMN at TEXT NOT NULL DEFAULT ''"); // 遅刻・早退の時刻（2026-10-15 から）
   }
+  // 2026-10-31 から、練習日の中の予定（分奏など）ごとに出欠をとる。slot は中の予定の id、空はその日の練習そのもの。
+  // 一人一日一件だった表を、一人一日一予定一件の表に作り直す
+  if (!hasColumn('answers', 'slot')) {
+    x(`CREATE TABLE answers_new (day_id TEXT NOT NULL, member_id TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '', at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id, slot))`);
+    x(`INSERT INTO answers_new (day_id, member_id, slot, status, reason, at, updated_at)
+      SELECT day_id, member_id, '', status, reason, at, updated_at FROM answers`);
+    x('DROP TABLE answers');
+    x('ALTER TABLE answers_new RENAME TO answers');
+  }
   // 2026-10-15 から姓と名を分けて持つ。氏名（name）は姓と名をスペースなしでつないだもの
   if (!hasColumn('members', 'sei')) {
     x("ALTER TABLE members ADD COLUMN sei TEXT NOT NULL DEFAULT ''");

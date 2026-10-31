@@ -239,6 +239,17 @@ export class Store {
     this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry, splits) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note, f.noentry, JSON.stringify(f.splits));
     return id;
   }
+  /** 中の予定を消したり、パートを外したりしたあとに、もうその人の予定でなくなった出欠を消す（呼ぶ側で db.txn に入れる） */
+  dropStaleAnswers(dayId) {
+    const day = withSplits(this.db.exec('SELECT * FROM days WHERE id = ?', dayId)[0]);
+    const rows = this.db.exec(`SELECT a.member_id, a.slot, m.part FROM answers a JOIN members m ON m.id = a.member_id
+      WHERE a.day_id = ? AND a.slot <> ''`, dayId);
+    for (const r of rows) {
+      if (!itemsFor(day, r.part).some((x) => x.slot === r.slot)) {
+        this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ? AND slot = ?', dayId, r.member_id, r.slot);
+      }
+    }
+  }
   /** 練習日を、その出欠ごと消す（呼ぶ側で db.txn に入れる） */
   removeDays(ids) {
     for (const id of ids) {
@@ -377,10 +388,11 @@ const PUBLIC = {
 const PRIVATE = {
   home: ['any', function (p, who) {
     const mine = who.member
-      ? this.db.exec('SELECT day_id, status, reason, at FROM answers WHERE member_id = ?', who.member.id)
+      ? this.db.exec('SELECT day_id, slot, status, reason, at FROM answers WHERE member_id = ?', who.member.id)
       : [];
+    // answers[練習日][予定] = 答え。予定は中の予定（分奏など）の id、空はその日の練習そのもの
     const answers = {};
-    for (const a of mine) answers[a.day_id] = { status: a.status, reason: a.reason, at: a.at };
+    for (const a of mine) (answers[a.day_id] = answers[a.day_id] || {})[a.slot] = { status: a.status, reason: a.reason, at: a.at };
     return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: this.parts() };
   }],
 
@@ -390,22 +402,26 @@ const PRIVATE = {
   }],
 
   answer: ['member', function (p, who) {
-    const day = this.db.exec('SELECT * FROM days WHERE id = ?', String(p.dayId || ''))[0];
-    if (!day || day.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const row = this.db.exec('SELECT * FROM days WHERE id = ?', String(p.dayId || ''))[0];
+    if (!row || row.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const day = withSplits(row);
     if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
+    // どの予定の出欠か。その人のパートの予定でなければ受けない
+    const slot = String(p.slot || '');
+    if (!itemsFor(day, who.member.part).some((x) => x.slot === slot)) return fail('この予定の出欠は入れられません。', 'NOT_FOUND');
     const status = String(p.status || '');
     // none は答えを取り消して未回答に戻す（リストの札を押し直したとき）
     if (status === 'none') {
-      this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id);
+      this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ? AND slot = ?', day.id, who.member.id, slot);
       return { ok: true, answer: { status: 'none', reason: '', at: '' } };
     }
     if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
     const reason = status === 'absent' ? cleanText(p.reason, LIMITS.REASON) : '';
     const at = status === 'late' || status === 'early' ? String(p.at || '') : '';
     if (at && !TIME.test(at)) return fail('時刻の形が正しくありません。');
-    this.db.exec(`INSERT INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT (day_id, member_id) DO UPDATE SET status = excluded.status, reason = excluded.reason, at = excluded.at, updated_at = excluded.updated_at`,
-    day.id, who.member.id, status, reason, at, this.stamp());
+    this.db.exec(`INSERT INTO answers (day_id, member_id, slot, status, reason, at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (day_id, member_id, slot) DO UPDATE SET status = excluded.status, reason = excluded.reason, at = excluded.at, updated_at = excluded.updated_at`,
+    day.id, who.member.id, slot, status, reason, at, this.stamp());
     return { ok: true, answer: { status, reason, at } };
   }],
 
@@ -501,12 +517,23 @@ const PRIVATE = {
     const day = withSplits(row);
     const canRead = isOfficer(who.role);
     const selfId = who.member ? who.member.id : '';
-    const rows = this.db.exec(`SELECT m.id, m.name, m.part, a.status, a.reason, a.at FROM members m
-      LEFT JOIN answers a ON a.member_id = m.id AND a.day_id = ? ORDER BY m.name`, day.id);
-    const members = rows.map((r) => {
-      const out = { id: r.id, name: r.name, part: r.part, status: r.status || 'none' };
-      if (r.at) out.at = r.at; // 遅刻・早退の時刻は誰にでも見せる
-      if (r.status === 'absent' && (canRead || r.id === selfId)) out.reason = r.reason || '';
+    const all = this.db.exec('SELECT member_id, slot, status, reason, at FROM answers WHERE day_id = ?', day.id);
+    const got = {};
+    for (const a of all) got[a.member_id + '|' + a.slot] = a;
+    const members = this.db.exec('SELECT id, name, part FROM members ORDER BY name').map((m) => {
+      // 予定ごとの答え。遅刻・早退の時刻は誰にでも見せ、欠席理由は本人とパートリーダー・管理者にだけ
+      const items = itemsFor(day, m.part).map((it) => {
+        const a = got[m.id + '|' + it.slot];
+        const one = { slot: it.slot, kind: it.kind, st: it.st, en: it.en, status: a ? a.status : 'none' };
+        if (a && a.at) one.at = a.at;
+        if (a && a.status === 'absent' && (canRead || m.id === selfId)) one.reason = a.reason || '';
+        return one;
+      });
+      const out = { id: m.id, name: m.name, part: m.part, status: overall(items.map((x) => x.status)) };
+      if (items.length === 1) {
+        if (items[0].at) out.at = items[0].at;
+        if (items[0].reason !== undefined) out.reason = items[0].reason;
+      } else out.items = items;
       return out;
     });
     return { ok: true, day, members, canReadReasons: canRead, parts: this.parts() };
@@ -540,6 +567,7 @@ const PRIVATE = {
       this.db.txn(() => {
         if (n) this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
         this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ?, splits = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, JSON.stringify(f.splits), id);
+        this.dropStaleAnswers(id);
       });
     } else {
       id = this.addDay(date, f);
@@ -569,7 +597,10 @@ const PRIVATE = {
     if (s.error) return fail(s.error);
     const denied = this.checkSplits(who, withSplits(row).splits, s.list);
     if (denied) return fail(denied, 'FORBIDDEN');
-    this.db.exec('UPDATE days SET splits = ? WHERE id = ?', JSON.stringify(s.list), row.id);
+    this.db.txn(() => {
+      this.db.exec('UPDATE days SET splits = ? WHERE id = ?', JSON.stringify(s.list), row.id);
+      this.dropStaleAnswers(row.id);
+    });
     return { ok: true, id: row.id, days: this.listDays() };
   }],
 
@@ -689,20 +720,22 @@ const PRIVATE = {
   /** CSV の書き出し。year を渡すとその年度の練習日だけ */
   exportCsv: ['admin', function (p) {
     const [from, to] = p && p.year ? yearRange(Number(p.year)) : ['0000-00-00', '9999-99-99'];
-    const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, d.splits, m.name, m.part, a.status, a.reason, a.at, a.updated_at
-      FROM days d CROSS JOIN members m LEFT JOIN answers a ON a.day_id = d.id AND a.member_id = m.id
-      WHERE d.noentry = 0 AND d.date BETWEEN ? AND ? ORDER BY d.date, d.st, m.part, m.name`, from, to);
+    const days = this.db.exec('SELECT * FROM days WHERE noentry = 0 AND date BETWEEN ? AND ? ORDER BY date, st', from, to).map(withSplits);
     const order = Object.fromEntries(this.partIds().map((id, i) => [id, i]));
     const pos = (part) => (part in order ? order[part] : 999);
-    rows.sort((a, b) => (a.date + a.st).localeCompare(b.date + b.st) || (pos(a.part) - pos(b.part)) || a.name.localeCompare(b.name, 'ja'));
+    const members = this.db.exec('SELECT id, name, part FROM members')
+      .sort((a, b) => (pos(a.part) - pos(b.part)) || a.name.localeCompare(b.name, 'ja'));
     const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '時刻', '欠席理由', '回答日時']];
-    for (const row of rows) {
-      // 分けて書いた内容があれば、その人のパートの内容と時刻を出す
-      // 一つだけならその種類と時刻、いくつもあれば種類を「・」でつなぎ、時刻はその日のまま
-      const mine = withSplits(row).splits.filter((x) => x.parts.includes(row.part));
-      const r = mine.length === 1 ? Object.assign({}, row, { kind: mine[0].kind, st: mine[0].st || row.st, en: mine[0].en || row.en })
-        : mine.length ? Object.assign({}, row, { kind: mine.map((x) => x.kind).join('・') }) : row;
-      lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', jstTime(r.updated_at)]);
+    for (const d of days) {
+      const got = {};
+      for (const a of this.db.exec('SELECT * FROM answers WHERE day_id = ?', d.id)) got[a.member_id + '|' + a.slot] = a;
+      // 一人について、その人のパートの予定ごとに1行（中の予定がなければその日の練習の1行）
+      for (const m of members) {
+        for (const it of itemsFor(d, m.part)) {
+          const a = got[m.id + '|' + it.slot] || {};
+          lines.push([d.date, it.kind, it.st, it.en, m.name, m.part, STATUS_LABEL[a.status] || '未回答', a.at || '', a.reason || '', jstTime(a.updated_at)]);
+        }
+      }
     }
     return { ok: true, csv: lines.map((l) => l.map(csvCell).join(',')).join('\r\n') + '\r\n' };
   }],
@@ -751,7 +784,9 @@ function splitFields(v, partIds) {
       if (!st || !en || !o.st || !o.en) return { error: `${shared} を二つの内容に入れるときは、どちらにも開始と終了の時刻を入れてください。` };
       if (st < o.en && o.st < en) return { error: `${shared} の内容の時刻が重なっています。` };
     }
-    list.push({ parts: partIds.filter((x) => parts.includes(x)), kind, st, en });
+    // 出欠を予定ごとに結び付けるため、中の予定には id を持たせる。直すときは前の id のまま
+    const id = typeof s.id === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(s.id) && !list.some((o) => o.id === s.id) ? s.id : randomId(6);
+    list.push({ id, parts: partIds.filter((x) => parts.includes(x)), kind, st, en });
   }
   list.sort((a, b) => (a.st || '').localeCompare(b.st || ''));
   return { list };
@@ -760,7 +795,34 @@ function splitFields(v, partIds) {
 function withSplits(row) {
   let splits = [];
   try { splits = JSON.parse(row.splits || '[]'); } catch (e) { /* 壊れていれば分けていない日として扱う */ }
-  return Object.assign({}, row, { splits: Array.isArray(splits) ? splits : [] });
+  // id のない古い内容には、並びの番号から決まった id を付ける
+  const list = Array.isArray(splits) ? splits.map((s, i) => (s.id ? s : Object.assign({ id: 'n' + i }, s))) : [];
+  return Object.assign({}, row, { splits: list });
+}
+/**
+ * その日の、ある人（パート）の出欠をとる予定。[{ slot, kind, st, en }] を時刻の順に。
+ * 中の予定（分奏など）はそれぞれ一つ（slot はその id）。中の予定のない時間があれば、その日の練習そのもの（slot は空）も一つ。
+ * 前後に分かれても（個人練習・パート練習・個人練習）、その日の練習の出欠は一つにまとめる
+ */
+export function itemsFor(day, part) {
+  const mine = (day.splits || []).filter((x) => x.parts.includes(part)).map((x) => ({ slot: x.id, kind: x.kind, st: x.st || day.st, en: x.en || day.en }));
+  if (!mine.length) return [{ slot: '', kind: day.kind, st: day.st, en: day.en }];
+  mine.sort((a, b) => (a.st || '').localeCompare(b.st || ''));
+  // その日の時間のうち、中の予定のない時間（最初のもの）を探す
+  let gap = '';
+  if (day.st && day.en && mine.every((x) => x.st && x.en)) {
+    let at = day.st;
+    for (const x of mine) { if (x.st > at && !gap) gap = at; if (x.en > at) at = x.en; }
+    if (!gap && at < day.en) gap = at;
+  } else if (!day.st || !day.en) gap = '';
+  const base = gap ? [{ slot: '', kind: day.kind, st: day.st, en: day.en, first: gap }] : [];
+  return base.concat(mine).sort((a, b) => (a.first || a.st || '').localeCompare(b.first || b.st || '')).map(({ first, ...x }) => x);
+}
+/** 予定ごとの答えから、その人のその日の答えをまとめる。全部同じならそれ、答えていない予定があれば未回答、混ざっていれば一部（partial） */
+function overall(statuses) {
+  if (statuses.some((x) => x === 'none')) return 'none';
+  if (statuses.every((x) => x === statuses[0])) return statuses[0];
+  return 'partial';
 }
 const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
 /** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */

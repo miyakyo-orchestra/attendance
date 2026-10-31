@@ -76,10 +76,10 @@ test('登録・ログイン・出欠の入力', async () => {
 
   const a = await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '教育実習' }, token);
   assert.equal(a.ok, true);
-  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'absent', reason: '教育実習', at: '' });
+  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId][''], { status: 'absent', reason: '教育実習', at: '' });
   // 出席に変えると理由は消える
   await t.call('answer', { dayId: t.dayId, status: 'attend', reason: 'のこる？' }, token);
-  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId], { status: 'attend', reason: '', at: '' });
+  assert.deepEqual((await t.call('home', {}, token)).answers[t.dayId][''], { status: 'attend', reason: '', at: '' });
 
   // 未回答に戻す
   assert.equal((await t.call('answer', { dayId: t.dayId, status: 'none' }, token)).answer.status, 'none');
@@ -541,7 +541,7 @@ test('暗証番号を忘れた人は、記録を残したまま仮の番号に�
   assert.match(r.pin, /^\d{6}$/);
   const login = await t.call('login', { name: '忘れた人', pin: r.pin });
   assert.equal(login.ok, true);
-  assert.equal((await t.call('home', {}, login.token)).answers[t.dayId].reason, '実習');
+  assert.equal((await t.call('home', {}, login.token)).answers[t.dayId][''].reason, '実習');
   assert.equal((await t.call('login', { name: '忘れた人', pin: '1111' })).code, 'WRONG_PIN');
 
   // パートリーダーは団員だけを再設定できる。団員は誰のも再設定できない
@@ -642,7 +642,9 @@ test('1日の練習の中で、パートごとに内容を分けて書ける', a
   const r = await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', st: '13:00', en: '17:00', splits: JSON.stringify(splits) }, t.adminToken);
   assert.equal(r.ok, true, r.message);
   const day = r.days.find((d) => d.id === t.dayId);
-  assert.deepEqual(day.splits, splits);
+  const noId = (list) => list.map(({ id, ...x }) => x);
+  assert.deepEqual(noId(day.splits), splits);
+  assert.ok(day.splits.every((x) => x.id));
   // 同じパートを二つの内容に入れるときは、どちらにも時刻があり重ならないこと
   const twice = (sp) => t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '練習', st: '18:00', en: '21:00', splits: sp }, t.adminToken);
   assert.equal((await twice([{ parts: ['Vn'], kind: '分奏' }, { parts: ['Vn'], kind: 'パート練習', st: '20:00', en: '21:00' }])).ok, false);
@@ -657,9 +659,10 @@ test('1日の練習の中で、パートごとに内容を分けて書ける', a
   // 一覧と CSV にも、その人のパートの内容が出る
   const va = await join(t, '青葉 花子', 'Va');
   await join(t, '片平 三子', 'Fl');
-  assert.equal((await t.call('answer', { dayId: t.dayId, status: 'attend' }, va)).ok, true);
+  const bunso = (await t.call('roster', { dayId: t.dayId }, va)).day.splits[0].id;
+  assert.equal((await t.call('answer', { dayId: t.dayId, slot: bunso, status: 'attend' }, va)).ok, true);
   const roster = await t.call('roster', { dayId: t.dayId }, va);
-  assert.deepEqual(roster.day.splits, splits);
+  assert.deepEqual(noId(roster.day.splits), splits);
   const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
   assert.match(csv, /2026-10-17,分奏,13:00,15:00,青葉花子,Va,出席/);
   assert.match(csv, /2026-10-17,個人練習,13:00,17:00,片平三子,Fl,未回答/);
@@ -696,4 +699,33 @@ test('パートごとの内容は、パートリーダーは自分のパート�
   const day = { id: t.dayId, date: '2026-10-17', kind: '分奏' };
   assert.equal((await t.call('saveDay', Object.assign({ splits: [] }, day), hrToken)).code, 'FORBIDDEN');
   assert.equal((await t.call('saveDay', Object.assign({ splits: r.days[0].splits }, day), hrToken)).ok, true);
+});
+
+test('中の予定があるときは、予定ごとに出欠をとる', async () => {
+  const t = await ready();
+  const splits = [{ parts: ['Hr', 'Vn'], kind: '合奏', st: '18:30', en: '20:00' }, { parts: ['Hr'], kind: 'パート練習', st: '20:00', en: '21:00' }];
+  const r = await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', st: '18:00', en: '21:00', splits }, t.adminToken);
+  assert.equal(r.ok, true, r.message);
+  const [tutti, part] = r.days.find((d) => d.id === t.dayId).splits;
+  const hr = await join(t, '八幡 次郎', 'Hr');
+  const fl = await join(t, '上杉 葵', 'Fl');
+  // Hr は 個人練習（前後で一つ）・合奏・パート練習 の三つ。Fl はその日の練習だけ
+  assert.equal((await t.call('answer', { dayId: t.dayId, status: 'attend' }, hr)).ok, true);
+  assert.equal((await t.call('answer', { dayId: t.dayId, slot: tutti.id, status: 'absent', reason: '授業' }, hr)).ok, true);
+  assert.equal((await t.call('answer', { dayId: t.dayId, slot: tutti.id, status: 'attend' }, fl)).code, 'NOT_FOUND');
+  const home = await t.call('home', {}, hr);
+  assert.deepEqual(Object.keys(home.answers[t.dayId]).sort(), ['', tutti.id].sort());
+  let roster = await t.call('roster', { dayId: t.dayId }, fl);
+  let me = roster.members.find((m) => m.name === '八幡次郎');
+  assert.deepEqual(me.items.map((x) => [x.kind, x.status]), [['個人練習', 'attend'], ['合奏', 'absent'], ['パート練習', 'none']]);
+  assert.equal(me.status, 'none');
+  assert.equal(me.items[1].reason, undefined); // ほかの団員には欠席理由を見せない
+  await t.call('answer', { dayId: t.dayId, slot: part.id, status: 'attend' }, hr);
+  roster = await t.call('roster', { dayId: t.dayId }, hr);
+  me = roster.members.find((m) => m.name === '八幡次郎');
+  assert.equal(me.status, 'partial');
+  assert.equal(me.items[1].reason, '授業');
+  // 中の予定を消すと、その予定の出欠も消える
+  await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', st: '18:00', en: '21:00', splits: [r.days.find((d) => d.id === t.dayId).splits[1]] }, t.adminToken);
+  assert.deepEqual(Object.keys((await t.call('home', {}, hr)).answers[t.dayId]).sort(), ['', part.id].sort());
 });
