@@ -320,36 +320,41 @@
     return Object.keys(SECTION_PARTS).find((k) => SECTION_PARTS[k].includes(id)) || '';
   }
   /** その日の自分の内容。パートごとに分けた内容に自分のパートがあればその種類と時刻、なければその日のもの */
-  function planOf(d) {
-    const s = mySplit(d);
-    return s ? Object.assign({}, d, { kind: s.kind, st: s.st || d.st, en: s.en || d.en }) : d;
-  }
-  function mySplit(d) {
+  /** その日の中の、自分のパートの内容（分奏・合奏・パート練習など）。時刻のないものはその日の時刻で。時刻の順 */
+  function splitPlans(d) {
     const part = state.me && state.me.part;
-    return (part && (d.splits || []).find((x) => x.parts.includes(part))) || null;
+    if (!part) return [];
+    return (d.splits || []).filter((x) => x.parts.includes(part)).map((x) => ({ kind: x.kind, st: x.st || d.st, en: x.en || d.en }))
+      .sort((a, b) => (a.st || '').localeCompare(b.st || ''));
+  }
+  /** 親の練習の色。中に合奏があれば合奏、本番などがあればその色 */
+  function parentTone(d) {
+    const tones = splitPlans(d).map(toneOf);
+    if (tones.includes('stage')) return 'stage';
+    if (tones.includes('tutti')) return 'tutti';
+    return toneOf(d);
   }
   /**
-   * その日の自分の時間割。パートの内容がその日の時間の一部だけなら、前後はその日の内容（個人練習など）のまま。
+   * その日の自分の時間割。中の予定のない時間は、その日の内容（個人練習など）のまま。
    * [{ kind, st, en, tone }] を時刻の順に返す
    */
   function scheduleOf(d) {
-    const s = mySplit(d);
-    const p = planOf(d);
-    if (!s || !d.st || !d.en || !s.st || !s.en || (s.st <= d.st && s.en >= d.en)) return [{ kind: p.kind, st: p.st, en: p.en, tone: toneOf(p) }];
+    const ps = splitPlans(d);
+    if (!ps.length) return [{ kind: d.kind, st: d.st, en: d.en, tone: toneOf(d) }];
+    if (!d.st || !d.en) return ps.map((x) => Object.assign({ tone: toneOf(x) }, x));
     const out = [];
-    if (s.st > d.st) out.push({ kind: d.kind, st: d.st, en: s.st, tone: toneOf(d) });
-    out.push({ kind: s.kind, st: s.st, en: s.en, tone: toneOf(p) });
-    if (s.en < d.en) out.push({ kind: d.kind, st: s.en, en: d.en, tone: toneOf(d) });
+    let at = d.st;
+    for (const x of ps) {
+      if (x.st > at) out.push({ kind: d.kind, st: at, en: x.st, tone: toneOf(d) });
+      out.push(Object.assign({ tone: toneOf(x) }, x));
+      if (x.en > at) at = x.en;
+    }
+    if (at < d.en) out.push({ kind: d.kind, st: at, en: d.en, tone: toneOf(d) });
     return out;
-  }
-  /** 自分のパートの内容を、その日とは別の予定として出すときの形 { kind, st, en }。なければ null */
-  function splitPlan(d) {
-    const s = mySplit(d);
-    return s ? { kind: s.kind, st: s.st || d.st, en: s.en || d.en } : null;
   }
   /** 自分の時間割を、時刻と種類の行で並べる（パートの内容がある日） */
   function scheduleRows(d) {
-    if (!mySplit(d)) return '';
+    if (!splitPlans(d).length) return '';
     const sc = scheduleOf(d);
     return `<div class="card schedule">${sc.map((x) => `<div class="sched-row"><span class="ag-bar ${x.tone}"></span><span class="sched-time">${esc(timeLabel(x))}</span><span>${esc(x.kind || '練習')}</span></div>`).join('')}</div>`;
   }
@@ -664,7 +669,7 @@
   function dayRow(d, isPast) {
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span>${splitPlan(d) ? `<span class="sub-plan"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(splitPlan(d))}"></span>${esc(metaLabel(splitPlan(d)))}</span>` : ''}</span>
+      <span class="ag-bar ${parentTone(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span>${splitPlans(d).map((sp) => `<span class="sub-plan"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span>${esc(metaLabel(sp))}</span>`).join('')}</span>
     </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
@@ -684,9 +689,8 @@
     for (const day of state.events) {
       if (monthOf(day.date) !== ym) continue;
       const list = (byDate[day.date] = byDate[day.date] || []);
-      list.push(day);
-      const sp = splitPlan(day);
-      if (sp) list.push(Object.assign({}, sp, { id: day.id, sub: true }));
+      list.push(Object.assign({}, day, { tone: parentTone(day) }));
+      for (const sp of splitPlans(day)) list.push(Object.assign({}, sp, { id: day.id, sub: true }));
     }
     const withDot = (d) => !d.noentry && !d.sub && isMember(); // 自分の出欠の点を付けるか
     let cells = '';
@@ -700,7 +704,7 @@
       const label = `${g.m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (withDot(d) ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
       cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
-        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}${d.sub ? ' sub' : ''}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
+        ${shown.map((d) => `<span class="mv-ev ${d.tone || toneOf(d)}${d.sub ? ' sub' : ''}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
@@ -718,12 +722,11 @@
     const rows = ds.map((d) => {
       const sub = d.note;
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
-      const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${sub ? `<span class="meta">${esc(sub)}</span>` : ''}</span>`;
+      const main = `<span class="ag-bar ${parentTone(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${sub ? `<span class="meta">${esc(sub)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
       // 自分のパートの内容（分奏など）は、その下に別の行で出す。押すとその日の出欠の入力
-      const sp = splitPlan(d);
       // その日の練習の中の予定として、字下げして枝の線でつなぐ
-      const spRow = sp ? `<div class="ag-row has-pill sub"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}" aria-label="${esc(`${dateLabel(d.date)}の${d.kind || '練習'}の中の${metaLabel(sp)}`)}"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span><span class="main"><span class="ag-sub-title">${esc(sp.kind)}</span>${timeLabel(sp) ? `<span class="meta">${esc(timeLabel(sp))}</span>` : ''}</span></button></div>` : '';
+      const spRow = splitPlans(d).map((sp) => `<div class="ag-row has-pill sub"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}" aria-label="${esc(`${dateLabel(d.date)}の${d.kind || '練習'}の中の${metaLabel(sp)}`)}"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span><span class="main"><span class="ag-sub-title">${esc(sp.kind)}</span>${timeLabel(sp) ? `<span class="meta">${esc(timeLabel(sp))}</span>` : ''}</span></button></div>`).join('');
       return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>${spRow}`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
@@ -847,8 +850,8 @@
       if (c.none) bits.push('未回答 ' + c.none);
       const sorted = ms.slice().sort((x, y) => order[x.status] - order[y.status]);
       // そのパートに分奏などの内容があれば、パート名の横に小さく添える
-      const sp = (r.day.splits || []).find((x) => x.parts.includes(pid));
-      const plan = sp ? `<span class="plan-chip ${toneOf(sp)}">${esc(metaLabel({ kind: sp.kind, st: sp.st, en: sp.en }))}</span>` : '';
+      const plan = (r.day.splits || []).filter((x) => x.parts.includes(pid))
+        .map((sp) => `<span class="plan-chip ${toneOf(sp)}">${esc(metaLabel({ kind: sp.kind, st: sp.st, en: sp.en }))}</span>`).join('');
       return `<section class="card"><div class="part-head"><h2>${esc(pid)}${plan}</h2><span>${bits.join('  ')}</span></div>
           ${sorted.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
             ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
@@ -1069,9 +1072,8 @@
   }
   /** 1日の練習の中で、パートごとに内容（分奏・パート練習など）を分けて書く欄 */
   function splitEditor() {
-    const used = new Set(state.splits.filter((sp, i) => i !== state.splitEdit).flatMap((sp) => sp.parts));
-    // 選べるのは、まだどの内容にも入っていない、自分が書いてよいパート
-    const free = sheetParts().filter((p) => !used.has(p.id) && canEditSplit([p.id]));
+    // 選べるのは、自分が書いてよいパート。同じパートを時刻の重ならないいくつもの内容に入れられる
+    const free = sheetParts().filter((p) => canEditSplit([p.id]));
     const pick = state.splitPick;
     const editing = state.splitEdit >= 0;
     const rows = state.splits.map((sp, i) => `<div class="list-row${i === state.splitEdit ? ' editing' : ''}"><span class="ag-bar ${toneOf(sp)}"></span><div class="main"><b>${esc(sp.kind)}</b><small>${esc([sp.parts.join(' '), timeLabel(sp)].filter(Boolean).join('　'))}</small></div>
@@ -1417,8 +1419,7 @@
     },
     'split-group': (el) => {
       keepDraft();
-      const used = new Set(state.splits.filter((sp, i) => i !== state.splitEdit).flatMap((sp) => sp.parts));
-      const ids = sectionParts(el.dataset.g).filter((id) => !used.has(id) && canEditSplit([id]));
+      const ids = sectionParts(el.dataset.g).filter((id) => canEditSplit([id]));
       const all = ids.every((id) => state.splitPick.includes(id));
       state.splitPick = all ? state.splitPick.filter((x) => !ids.includes(x)) : [...new Set([...state.splitPick, ...ids])];
       render();
@@ -1430,6 +1431,14 @@
       if (sd.st && sd.en && sd.en <= sd.st) { state.error = '終了時刻は開始時刻より後にしてください。'; render(); return; }
       const order = sheetParts().map((p) => p.id);
       const sp = { parts: order.filter((id) => state.splitPick.includes(id)), kind: sd.kind.trim(), st: sd.st || '', en: sd.en || '' };
+      // 同じパートのほかの内容と時刻が重なれば受けない（サーバーの確かめと同じ）
+      for (const [i, o] of state.splits.entries()) {
+        const shared = i === state.splitEdit ? '' : o.parts.find((x) => sp.parts.includes(x));
+        if (!shared) continue;
+        const msg = !sp.st || !sp.en || !o.st || !o.en ? `${shared} を二つの内容に入れるときは、どちらにも開始と終了の時刻を入れてください。`
+          : sp.st < o.en && o.st < sp.en ? `${shared} の${o.kind} ${timeLabel(o)}と時刻が重なっています。` : '';
+        if (msg) { state.error = msg; render(); return; }
+      }
       // 直しているときはその場所に入れ替え、そうでなければ最後に足す
       state.splits = state.splitEdit >= 0 ? state.splits.map((x, i) => (i === state.splitEdit ? sp : x)) : [...state.splits, sp];
       state.splitEdit = -1;

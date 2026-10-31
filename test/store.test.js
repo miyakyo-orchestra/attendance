@@ -643,9 +643,14 @@ test('1日の練習の中で、パートごとに内容を分けて書ける', a
   assert.equal(r.ok, true, r.message);
   const day = r.days.find((d) => d.id === t.dayId);
   assert.deepEqual(day.splits, splits);
-  // 同じパートを二つの内容に入れることはできない
-  const twice = await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', splits: [{ parts: ['Vn'], kind: '分奏' }, { parts: ['Vn'], kind: 'パート練習' }] }, t.adminToken);
-  assert.equal(twice.ok, false);
+  // 同じパートを二つの内容に入れるときは、どちらにも時刻があり重ならないこと
+  const twice = (sp) => t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '練習', st: '18:00', en: '21:00', splits: sp }, t.adminToken);
+  assert.equal((await twice([{ parts: ['Vn'], kind: '分奏' }, { parts: ['Vn'], kind: 'パート練習', st: '20:00', en: '21:00' }])).ok, false);
+  assert.equal((await twice([{ parts: ['Vn', 'Hr'], kind: '合奏', st: '18:30', en: '20:00' }, { parts: ['Hr'], kind: 'パート練習', st: '19:30', en: '21:00' }])).ok, false);
+  const ok = await twice([{ parts: ['Hr'], kind: 'パート練習', st: '20:00', en: '21:00' }, { parts: ['Vn', 'Hr'], kind: '合奏', st: '18:30', en: '20:00' }]);
+  assert.equal(ok.ok, true, ok.message);
+  assert.deepEqual(ok.days.find((d) => d.id === t.dayId).splits.map((x) => x.kind), ['合奏', 'パート練習']); // 時刻の順にそろえる
+  await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', st: '13:00', en: '17:00', splits }, t.adminToken);
   // 種類のない内容、ないパートだけの内容は受けない
   assert.equal((await t.call('saveDay', { id: t.dayId, date: '2026-10-17', splits: [{ parts: ['Vn'], kind: '' }] }, t.adminToken)).ok, false);
   assert.equal((await t.call('saveDay', { id: t.dayId, date: '2026-10-17', splits: [{ parts: ['Xx'], kind: '分奏' }] }, t.adminToken)).ok, false);

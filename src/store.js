@@ -698,8 +698,10 @@ const PRIVATE = {
     const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '時刻', '欠席理由', '回答日時']];
     for (const row of rows) {
       // 分けて書いた内容があれば、その人のパートの内容と時刻を出す
-      const s = withSplits(row).splits.find((x) => x.parts.includes(row.part));
-      const r = s ? Object.assign({}, row, { kind: s.kind, st: s.st, en: s.en }) : row;
+      // 一つだけならその種類と時刻、いくつもあれば種類を「・」でつなぎ、時刻はその日のまま
+      const mine = withSplits(row).splits.filter((x) => x.parts.includes(row.part));
+      const r = mine.length === 1 ? Object.assign({}, row, { kind: mine[0].kind, st: mine[0].st || row.st, en: mine[0].en || row.en })
+        : mine.length ? Object.assign({}, row, { kind: mine.map((x) => x.kind).join('・') }) : row;
       lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', jstTime(r.updated_at)]);
     }
     return { ok: true, csv: lines.map((l) => l.map(csvCell).join(',')).join('\r\n') + '\r\n' };
@@ -723,7 +725,8 @@ function dayFields(p, partIds) {
 }
 /**
  * 1日の練習の中で、組やパートごとに分けた内容（弦は分奏、Hr はパート練習など）を確かめる。
- * [{ parts: ['Vn', …], kind, st, en }]。一つのパートは一つの内容にだけ入れられる。画面からは JSON の文字でも届く
+ * [{ parts: ['Vn', …], kind, st, en }]。一つのパートをいくつもの内容に入れるときは、どれも時刻を入れ、重ならないようにする
+ * （例えば全員の合奏 18:30〜20:00 と、Hr のパート練習 20:00〜21:00）。画面からは JSON の文字でも届く
  */
 function splitFields(v, partIds) {
   let a = v;
@@ -731,21 +734,26 @@ function splitFields(v, partIds) {
   if (a === undefined || a === null) a = [];
   if (!Array.isArray(a)) return { error: '分けた内容の形が正しくありません。' };
   if (a.length > LIMITS.SPLITS) return { error: `分けられる内容は${LIMITS.SPLITS}までです。` };
-  const used = new Set();
   const list = [];
   for (const s of a) {
     const parts = [...new Set(Array.isArray(s && s.parts) ? s.parts.map(String) : [])].filter((x) => partIds.includes(x));
     if (!parts.length) return { error: '分けた内容にパートを選んでください。' };
-    if (parts.some((x) => used.has(x))) return { error: '一つのパートを二つの内容に入れることはできません。' };
-    parts.forEach((x) => used.add(x));
     const kind = cleanText(s.kind, LIMITS.KIND);
     if (!kind) return { error: '分けた内容に種類（分奏など）を入れてください。' };
     const st = String(s.st || '');
     const en = String(s.en || '');
     if ((st && !TIME.test(st)) || (en && !TIME.test(en))) return { error: '時刻の形が正しくありません。' };
     if (st && en && en <= st) return { error: '終了時刻は開始時刻より後にしてください。' };
+    // 同じパートの内容どうしは、どちらにも時刻があって重ならないこと
+    for (const o of list) {
+      const shared = o.parts.find((x) => parts.includes(x));
+      if (!shared) continue;
+      if (!st || !en || !o.st || !o.en) return { error: `${shared} を二つの内容に入れるときは、どちらにも開始と終了の時刻を入れてください。` };
+      if (st < o.en && o.st < en) return { error: `${shared} の内容の時刻が重なっています。` };
+    }
     list.push({ parts: partIds.filter((x) => parts.includes(x)), kind, st, en });
   }
+  list.sort((a, b) => (a.st || '').localeCompare(b.st || ''));
   return { list };
 }
 /** データベースの行の splits（JSON の文字）を配列にする */
