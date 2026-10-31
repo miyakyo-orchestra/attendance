@@ -176,19 +176,19 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 14px 4px 14px 16px;
   background: none; border: none; color: inherit; text-align: left; font: inherit;
 }
-.day > .pill, .ag-row > .pill { margin-right: 16px; }
-.ans { flex: none; align-self: stretch; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 4px; }
-.pill-btn { display: flex; align-items: center; min-height: 44px; padding: 0; background: none; border: none; font: inherit; }
-/* 出席のチェック。未回答は枠、出席は出席の色で塗る */
-.ans-check, .ans-more { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border-radius: 50%; border: none; background: none; color: var(--sub); }
-.ans-check { box-shadow: inset 0 0 0 1.5px var(--line-strong, var(--sub)); transition: background-color .15s, color .15s, box-shadow .15s, transform .1s; }
-.ans-check.todo { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
-.ans-check.on { background: var(--blue); color: var(--on-accent); box-shadow: none; }
-.ans-check:active, .ans-more:active, .pill-btn:active .pill { transform: scale(.92); }
-.ans-check svg { stroke-width: 2.4; }
-.ans-more svg circle { fill: currentColor; stroke: none; }
+/* 行の右の出欠のボタン。答えは一つのボタンで示す。押せる広さは 44px のまま、見える丸は 26px（iPhone のリマインダーにならう）。
+   未回答は空の丸、出席は出席の色で塗ってチェックを出す。遅刻・早退・欠席は札 */
+.ans { flex: none; align-self: stretch; display: flex; align-items: center; padding-right: 8px; }
+.ans > .pill { margin-right: 8px; }
+.pill-btn { display: flex; align-items: center; min-height: 44px; padding: 0 8px 0 4px; background: none; border: none; font: inherit; }
+.ans-check { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: none; background: none; color: var(--on-accent); }
+.ans-check .ring { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--field-line); transition: background-color .15s, box-shadow .15s, transform .1s; }
+.ans-check svg { width: 16px; height: 16px; stroke-width: 2.8; opacity: 0; transition: opacity .15s; }
+.ans-check.on .ring { background: var(--blue); box-shadow: none; }
+.ans-check.on svg { opacity: 1; }
+.ans-check:active .ring, .pill-btn:active .pill { transform: scale(.9); }
 /* 区切り線は文字の左端から引く（iPhone の表にならう） */
-.day + .day, .person + .person, .list-row + .list-row, .ag-row + .ag-row { border-top: none; background-image: linear-gradient(var(--line), var(--line)); background-size: calc(100% - var(--inset, 16px)) 1px; background-position: right top; background-repeat: no-repeat; }
+.day + .day, .person + .person, .list-row + .list-row, .ag-item + .ag-item { border-top: none; background-image: linear-gradient(var(--line), var(--line)); background-size: calc(100% - var(--inset, 16px)) 1px; background-position: right top; background-repeat: no-repeat; }
 .day + .day { --inset: 32px; }
 .day .main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .day .ag-bar { margin-right: -2px; }
@@ -315,8 +315,20 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .counts b { font-size: 24px; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .filter-row .seg { width: auto; min-width: 200px; grid-auto-columns: minmax(48px, 1fr); }
-.part-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.part-head span { font-size: 12px; color: var(--sub); white-space: pre; }
+.part-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.part-head > span { font-size: 12px; color: var(--sub); white-space: pre; padding-top: 3px; }
+.part-name { display: flex; flex-direction: column; min-width: 0; }
+.part-name h2 { margin: 0; font-size: 17px; }
+.part-plan { margin: 0; font-size: 13px; color: var(--sub); }
+/* 予定ごとに答えるパートの表。見出しに予定の名前を一度だけ出し、各人はその列に点を並べる */
+.mx-head { display: flex; padding: 8px 16px 0; font-size: 11px; color: var(--sub); }
+.mx-head span:first-child, .mx-row .person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-head span + span, .mx-cell { flex: none; width: 58px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mx-row { justify-content: flex-start; gap: 0; }
+.mx-cell { display: inline-flex; align-items: center; justify-content: center; gap: 3px; }
+.mx-cell .dot { width: 9px; height: 9px; flex: none; }
+.mx-cell small { font-size: 11px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.reason-kind { color: var(--sub); margin-right: 8px; }
 .person { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; }
 .person-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; font-size: 17px; }
 .person .pill { padding: 3px 10px; }
@@ -410,31 +422,52 @@ main.auth h1 { font-size: 26px; }
 .mv-cell.holiday .mv-num { color: var(--sub); }
 .mv-cell[aria-pressed="true"] .mv-num { background: var(--ink); color: var(--on-ink); font-weight: 700; }
 .mv-cell.today .mv-num { background: var(--danger); color: var(--on-accent); font-weight: 700; }
-.mv-ev { display: flex; align-items: center; gap: 3px; height: 18px; font-size: 11px; border-radius: 5px; padding: 0 3px; white-space: nowrap; overflow: hidden; font-weight: 500; text-align: left; }
-.mv-ev .dot { flex: none; width: 8px; height: 8px; }
+/* 札は練習ごとに一つ。地の色はどれも同じにし、予定の種類は左の細い色の線だけで示す。
+   分奏などのある日は札の中に内容を時刻の順に重ね、線の色が上から切り替わる */
+.mv-cell { position: relative; }
+.mv-ev { display: flex; flex-direction: column; border-radius: 4px; background: var(--muted); overflow: hidden; text-align: left; }
+.mv-line { display: flex; align-items: center; height: 16px; padding: 0 2px 0 5px; font-size: 11px; font-weight: 500; white-space: nowrap; box-shadow: inset 2px 0 0 var(--grey); }
+.mv-line.part { box-shadow: inset 2px 0 0 var(--part); }
+.mv-line.tutti { box-shadow: inset 2px 0 0 var(--tutti); }
+.mv-line.stage { box-shadow: inset 2px 0 0 var(--stage); }
+.mv-ev.plain .mv-line { box-shadow: none; color: var(--sub); font-weight: 400; }
 .mv-name { overflow: hidden; min-width: 0; }
 .mv-name.cut { -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
-.mv-ev.part { background: var(--part-soft); color: var(--part); }
-.mv-ev.tutti { background: var(--tutti-soft); color: var(--tutti); }
-.mv-ev.stage { background: var(--stage-soft); color: var(--stage); }
-.mv-ev.plain { background: var(--muted); color: var(--sub); font-weight: 400; }
 .mv-cell.past .mv-ev { opacity: .5; }
+/* 自分の出欠は、日付の右肩に練習ごとに一つの点 */
+.mv-st { position: absolute; top: 7px; right: 3px; display: flex; flex-direction: column; gap: 2px; }
+.mv-st .dot { width: 7px; height: 7px; }
 .mv .legend { padding: 8px 0 0; border-top: 1px solid var(--line); }
 .mv-more { font-size: 11px; line-height: 14px; color: var(--sub); }
 .agenda { display: flex; flex-direction: column; }
-.ag-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; min-height: 60px; border: none; background: none; color: var(--ink); text-align: left; }
-.ag-row.has-pill { padding: 0; }
-.ag-row.has-pill .day-open { gap: 10px; padding: 12px 4px 12px 16px; min-height: 60px; }
-.ag-time { flex: none; width: 44px; display: flex; flex-direction: column; font-size: 13px; line-height: 1.35; }
-.ag-time b { font-weight: 500; }
-.ag-time span { color: var(--sub); }
 .ag-bar { flex: none; align-self: stretch; width: 4px; border-radius: 2px; background: var(--grey); }
 .ag-bar.part { background: var(--part); }
 .ag-bar.tutti { background: var(--tutti); }
 .ag-bar.stage { background: var(--stage); }
-.ag-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.ag-title { font-size: 17px; font-weight: 700; }
-.ag-row .meta { font-size: 15px; color: var(--sub); }
+/* 予定の時間割（カレンダーの下と、リストの分奏などがある日）。左に開始の時刻、色の縦線、内容の名前、右に出欠のボタン。
+   縦線は行のあいだで切れず、内容が変わるところで色だけが変わる */
+.ag-item { padding: 6px 0; --inset: 68px; }
+.tl { display: flex; flex-direction: column; }
+.tl-row { display: flex; align-items: stretch; min-height: 44px; }
+.tl-open { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 12px; padding: 0 4px 0 16px; background: none; border: none; color: inherit; text-align: left; font: inherit; }
+.tl-time { flex: none; align-self: center; width: 40px; display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.tl-time b { font-weight: 500; }
+.tl-time span { color: var(--sub); }
+.tl-bar { flex: none; width: 3px; background: var(--grey); }
+.tl-bar.part { background: var(--part); }
+.tl-bar.tutti { background: var(--tutti); }
+.tl-bar.stage { background: var(--stage); }
+.tl-row:first-child .tl-bar { margin-top: 8px; border-radius: 2px 2px 0 0; }
+.tl-row:last-child .tl-bar { margin-bottom: 8px; border-radius: 0 0 2px 2px; }
+.tl-row:only-child .tl-bar { border-radius: 2px; }
+.tl-kind { align-self: center; min-width: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-note { margin: 0 16px 4px 83px; font-size: 15px; color: var(--sub); }
+/* リストの、分奏などがある日。日付と全体の時刻を見出しにし、その下に時間割。文字の左端はほかの日の日付にそろえる */
+.day.sched { flex-direction: column; align-items: stretch; padding: 12px 0 4px; }
+.day-head { display: flex; align-items: baseline; gap: 8px; padding: 0 16px 2px 32px; }
+.day.sched .tl-open { padding-left: 32px; }
+.day.past .tl-bar { opacity: .5; }
+.day.past .tl-kind { color: var(--sub); }
 
 /* プライバシーポリシー */
 .doc-date { margin: -8px 0 0; font-size: 13px; color: var(--sub); }
@@ -493,44 +526,7 @@ body.sheet-open { overflow: hidden; }
 .pick-pill[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
 .split-add .ghost { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--blue); }
 .split-add .ghost:disabled { color: var(--grey); }
-/* 一覧で、パート名の横に添える分奏などの内容 */
-.plan-chip { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; vertical-align: 2px; white-space: nowrap; }
-.plan-chip.part { background: var(--part-soft); color: var(--part); }
-.plan-chip.tutti { background: var(--tutti-soft); color: var(--tutti); }
-.plan-chip.stage { background: var(--stage-soft); color: var(--stage); }
-/* 自分のパートの内容がある日の時間割。各行の左の色の縦線がつながり、上から順に塗り替わる */
-.ag-bar.blank { background: none; }
-.seg-lines { display: flex; flex-direction: column; gap: 2px; }
-/* 時間割の1行。左は押すと出欠の入力に進み、右はその予定の出欠のボタン */
-.seg-line { display: flex; align-items: stretch; min-height: 44px; }
-.seg-open {
-  flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 10px; padding: 0 4px 0 16px;
-  background: none; border: none; color: inherit; text-align: left; font: inherit; font-size: 15px;
-}
-.seg-open > * { align-self: center; }
-.seg-open > .seg-piece { align-self: stretch; }
-.seg-line .ans { align-self: center; }
-.seg-line > .pill { align-self: center; margin-right: 16px; }
-.seg-piece { flex: none; width: 4px; border-radius: 2px; background: var(--grey); }
-.seg-piece.part { background: var(--part); }
-.seg-piece.tutti { background: var(--tutti); }
-.seg-piece.stage { background: var(--stage); }
-.seg-time { flex: none; color: var(--sub); font-variant-numeric: tabular-nums; }
-.seg-kind { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.day.split { flex-direction: column; align-items: stretch; padding-bottom: 8px; }
-.day.split > .day-open { padding-bottom: 6px; }
-.day.past .seg-piece { opacity: .5; }
-.day.past .seg-kind { color: var(--sub); }
-.ag-row.split { flex-direction: column; align-items: stretch; gap: 0; padding: 8px 0; }
-.seg-lines.agenda .seg-open { font-size: 17px; }
-.seg-lines.agenda .ag-time { justify-content: center; }
-.seg-lines.agenda .seg-kind { font-weight: 700; }
-.seg-note { margin: 2px 16px 0 70px; }
-/* 一覧で、予定ごとに答える人の予定ごとの答え */
-.item-pills { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--sub); }
-.item-pill { display: inline-flex; align-items: center; gap: 5px; }
-.item-pill .dot { width: 8px; height: 8px; }
-.pill.partial { background: var(--blue-soft); color: var(--blue); }
+/* 予定ごとに答える日の、まとめた答えで出る予定と出ない予定が混ざるもの（一部） */
 .dot.partial { background: linear-gradient(90deg, var(--blue) 50%, transparent 50%); border: 1.5px solid var(--blue); }
 /* 管理者の団員の行。役割とセクションリーダーの二つの選ぶ欄を、氏名の下の段に並べる */
 .member-row { flex-wrap: wrap; }
@@ -538,6 +534,3 @@ body.sheet-open { overflow: hidden; }
 .member-row .actions .select { flex: 1; min-width: 0; }
 .split-list .list-row.editing { background-color: var(--blue-soft); }
 .split-list .ghost.icon[aria-pressed="true"] { color: var(--blue); }
-/* 出欠の入力の時間割 */
-.schedule { padding: 8px 0; }
-.schedule .seg-kind { font-size: 17px; }
