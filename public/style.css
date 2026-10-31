@@ -326,14 +326,15 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .mx-head span { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 点は列の真ん中。遅刻・早退の時刻は点の下に小さく出し、点の位置を動かさない */
 .mx-cell { position: relative; display: flex; align-items: center; justify-content: center; align-self: stretch; min-height: 40px; }
-.mx-cell .dot { width: 9px; height: 9px; flex: none; }
+.mx-cell .dot { width: 11px; height: 11px; flex: none; }
 .mx-cell small { position: absolute; left: 0; right: 0; top: calc(50% + 7px); font-size: 11px; line-height: 1.1; text-align: center; color: var(--sub); font-variant-numeric: tabular-nums; }
 .mx .person { padding-top: 4px; padding-bottom: 4px; }
 .person-name { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
 /* 欠席理由が見られる人の目印と、押すと開く行 */
-.has-reason { flex: none; display: inline-grid; color: var(--sub); }
+.has-reason { flex: none; display: inline-grid; color: var(--blue); }
+.has-reason svg { width: 20px; height: 20px; stroke-width: 1.8; }
 button.person-row { width: 100%; padding: 0; border: none; background: none; color: inherit; font: inherit; font-size: 17px; text-align: left; }
-.person-row[aria-expanded="true"] .has-reason { color: var(--blue); }
+.person-row[aria-expanded="true"] .has-reason svg { fill: currentColor; }
 .reason-kind { color: var(--sub); margin-right: 8px; }
 .person { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; }
 .person-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 28px; font-size: 17px; }

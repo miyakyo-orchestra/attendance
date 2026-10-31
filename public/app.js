@@ -46,7 +46,7 @@
     cal: svg(CALENDAR, 20),
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
-    note: svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.7A8 8 0 1 1 21 12z"/>', 14),
+    note: svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.7A8 8 0 1 1 21 12z"/>', 20),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
     more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
     listview: svg('<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="17.5" r="1.2"/>', 22),
