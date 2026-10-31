@@ -497,9 +497,19 @@ body.sheet-open { overflow: hidden; }
 .plan-chip.part { background: var(--part-soft); color: var(--part); }
 .plan-chip.tutti { background: var(--tutti-soft); color: var(--tutti); }
 .plan-chip.stage { background: var(--stage-soft); color: var(--stage); }
-/* ホームのリストで、その日の練習の下に出す自分のパートの内容 */
+/* その日の練習の中の、自分のパートの内容（分奏など）。親の練習の下に字下げし、枝の線でつなぐ */
+.elbow { flex: none; align-self: flex-start; width: 12px; height: 50%; min-height: 12px; border-left: 2px solid var(--field); border-bottom: 2px solid var(--field); border-bottom-left-radius: 6px; }
 .sub-plan { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 15px; color: var(--ink); }
+.sub-plan .elbow { align-self: flex-start; height: 11px; min-height: 0; margin-left: 2px; }
 .sub-plan .ag-bar { height: 16px; align-self: center; }
+.ag-row.sub { background-image: none; margin-top: -10px; }
+.ag-row.sub .day-open { min-height: 48px; padding: 0 4px 10px 70px; align-items: stretch; gap: 8px; }
+.ag-row.sub .elbow { height: 22px; min-height: 0; margin-left: 2px; }
+.ag-row.sub .ag-bar { align-self: center; height: 34px; }
+.ag-row.sub .main { justify-content: center; }
+.ag-sub-title { font-size: 15px; font-weight: 600; }
+.ag-row.sub .meta { font-size: 13px; }
+.mv-ev.sub { margin-left: 5px; }
 /* 管理者の団員の行。役割とセクションリーダーの二つの選ぶ欄を、氏名の下の段に並べる */
 .member-row { flex-wrap: wrap; }
 .member-row .actions { flex-basis: 100%; display: flex; gap: 8px; }

@@ -664,7 +664,7 @@
   function dayRow(d, isPast) {
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span>${splitPlan(d) ? `<span class="sub-plan"><span class="ag-bar ${toneOf(splitPlan(d))}"></span>${esc(metaLabel(splitPlan(d)))}</span>` : ''}</span>
+      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span>${splitPlan(d) ? `<span class="sub-plan"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(splitPlan(d))}"></span>${esc(metaLabel(splitPlan(d)))}</span>` : ''}</span>
     </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
@@ -700,7 +700,7 @@
       const label = `${g.m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (withDot(d) ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
       cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
-        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
+        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}${d.sub ? ' sub' : ''}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
@@ -722,7 +722,8 @@
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
       // 自分のパートの内容（分奏など）は、その下に別の行で出す。押すとその日の出欠の入力
       const sp = splitPlan(d);
-      const spRow = sp ? `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${sp.st ? `<span class="ag-time"><b>${esc(sp.st)}</b>${sp.en ? `<span>${esc(sp.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>'}<span class="ag-bar ${toneOf(sp)}"></span><span class="main"><span class="ag-title">${esc(sp.kind)}</span></span></button></div>` : '';
+      // その日の練習の中の予定として、字下げして枝の線でつなぐ
+      const spRow = sp ? `<div class="ag-row has-pill sub"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}" aria-label="${esc(`${dateLabel(d.date)}の${d.kind || '練習'}の中の${metaLabel(sp)}`)}"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span><span class="main"><span class="ag-sub-title">${esc(sp.kind)}</span>${timeLabel(sp) ? `<span class="meta">${esc(timeLabel(sp))}</span>` : ''}</span></button></div>` : '';
       return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>${spRow}`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
