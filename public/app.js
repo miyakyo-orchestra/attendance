@@ -306,7 +306,11 @@
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   /** 出欠の札の文字。遅刻・早退は時刻も */
   function statusText(a) { return STATUS_LABEL[a.status] + (a.at ? ' ' + a.at : ''); }
-  function partsOf(group) { return state.parts.filter((p) => !group || group === 'all' || p.group === group); }
+  /** 一覧の絞り込みのパート。mine は自分のパートだけ */
+  function partsOf(group) {
+    if (group === 'mine') return state.parts.filter((p) => state.me && p.id === state.me.part);
+    return state.parts.filter((p) => !group || group === 'all' || p.group === group);
+  }
   /** その日の自分の内容。パートごとに分けた内容に自分のパートがあればその種類と時刻、なければその日のもの */
   function planOf(d) {
     const part = state.me && state.me.part;
@@ -768,6 +772,10 @@
   }
   /** 選んだ練習日の人数・帯・絞り込みと、パートごとの一覧 */
   function rosterBody(r) {
+    // 団員には全体・弦・管打のあとに自分のパート（Vn など）も出す
+    const filters = [['all', '全体'], ['strings', '弦'], ['winds', '管打']];
+    if (isMember() && state.parts.some((p) => p.id === state.me.part)) filters.push(['mine', state.me.part]);
+    if (!filters.some(([k]) => k === state.rosterGroup)) state.rosterGroup = 'all';
     const groupParts = partsOf(state.rosterGroup).map((p) => p.id);
     const shown = r.members.filter((m) => groupParts.includes(m.part));
     const t = countOf(shown);
@@ -799,7 +807,7 @@
       if (!inner || !g.plan) return inner;
       return `<h2 class="plan-label"><span class="ag-bar ${toneOf(g.plan)}"></span>${esc(metaLabel(g.plan) || '練習')}</h2>${inner}`;
     }).join('');
-    const groupLabel = { all: '全体', strings: '弦', winds: '管打' }[state.rosterGroup];
+    const groupLabel = Object.fromEntries(filters)[state.rosterGroup];
     const part = t.late + t.early;
     return `<section class="card pad">
           <div class="sum-head"><h1>${esc(dateLabel(r.day.date))}</h1><span>${groupLabel} ${shown.length}人</span></div>
@@ -809,7 +817,7 @@
         </section>
         <div class="filter-row">
           <div class="seg" role="group" aria-label="絞り込み">
-            ${[['all', '全体'], ['strings', '弦'], ['winds', '管打']].map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
+            ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
           </div>
           ${r.canReadReasons ? `<button class="link" data-act="roster-reasons" aria-pressed="${showReasons}">${showReasons ? '理由を隠す' : '理由を見る'}</button>` : ''}
         </div>

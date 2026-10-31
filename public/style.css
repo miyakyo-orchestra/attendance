@@ -314,7 +314,7 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .counts small .dot { width: 8px; height: 8px; flex: none; }
 .counts b { font-size: 24px; }
 .filter-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.filter-row .seg { width: 200px; }
+.filter-row .seg { width: auto; min-width: 200px; grid-auto-columns: minmax(48px, 1fr); }
 .part-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .part-head span { font-size: 12px; color: var(--sub); white-space: pre; }
 .person { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; }
