@@ -25,6 +25,9 @@
   const ROLE_LABEL = { member: '団員', officer: 'パートリーダー', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
   const GROUP_LABEL = { strings: '弦', winds: '管打' };
+  // セクション（弦・木管・金管）。弦は弦の組のパート全部、木管と金管は決まったパート（サーバーの limits.js と同じ）。打楽器は入れない
+  const SECTION_LABEL = { strings: '弦', woodwinds: '木管', brass: '金管' };
+  const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
   const KINDS = ['合奏', '個人／パート', '分奏', 'リハーサル', '演奏会', '本番', '授業', '休み']; // 練習日の種類の候補
   const ADMIN_TABS = [['days', '練習日'], ['members', '団員'], ['parts', 'パート'], ['records', '記録']];
 
@@ -298,6 +301,8 @@
   function isMember() { return state.me && state.me.id; }
   function isOfficer() { return state.me && (state.me.role === 'officer' || state.me.role === 'admin'); }
   function isAdmin() { return state.me && state.me.role === 'admin'; }
+  /** 管理の練習日に入れるか（パートリーダー・セクションリーダー・管理者） */
+  function isLead() { return isOfficer() || !!(state.me && state.me.lead); }
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   /** 出欠の札の文字。遅刻・早退は時刻も */
   function statusText(a) { return STATUS_LABEL[a.status] + (a.at ? ' ' + a.at : ''); }
@@ -442,7 +447,7 @@
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
-    if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
+    if (isLead()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
     const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
@@ -908,7 +913,8 @@
     if (!a) return page('<div class="empty">読み込み中</div>', { title: '管理' });
     const admin = isAdmin();
     // パートリーダーには練習日と団員（暗証番号の再設定だけ）
-    const tabList = admin ? ADMIN_TABS : ADMIN_TABS.filter(([k]) => k === 'days' || k === 'members');
+    // セクションリーダー（パートリーダーでない人）には練習日だけ
+    const tabList = admin ? ADMIN_TABS : ADMIN_TABS.filter(([k]) => k === 'days' || (k === 'members' && isOfficer()));
     const tab = tabList.some(([k]) => k === state.adminTab) ? state.adminTab : 'days';
     const body = { days: adminDays, members: adminMembers, parts: adminParts, records: adminRecords }[tab](a);
     return page(`
@@ -927,7 +933,7 @@
     const ds = a.days.filter((d) => monthOf(d.date) === ym);
     const away = ym !== monthOf(state.today);
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span>${isOfficer() ? `<button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button>` : ''}</div></div>
       </section>
       <div class="adm-month">
         <div class="adm-month-head">
@@ -942,7 +948,7 @@
   }
   function adminDayRow(d) {
     return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), ...(d.splits || []).map((sp) => sp.kind + ' ' + sp.parts.join(' ')), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
+          <div class="actions tight">${isOfficer() ? `<button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button>` : ''}${isOfficer() || !d.noentry ? `<button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button>` : ''}${isOfficer() ? `<button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
@@ -951,7 +957,12 @@
     const title = edit ? '練習日を直す' : '練習日を足す';
     const enter = sheetEnter;
     sheetEnter = false;
-    const body = edit ? `<form data-form="day" class="form-grid">
+    // セクションリーダー（パートリーダーでない人）は、パートごとの内容だけを直す
+    const body = edit && !isOfficer() ? `<form data-form="splits" class="form-grid">
+          <div class="full"><b>${esc(dateLabel(e.date))}</b> <span class="title-meta">${esc(metaLabel(e))}</span></div>
+          ${splitEditor()}
+          <button class="cta full" type="submit">保存する</button>
+        </form>` : edit ? `<form data-form="day" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
           ${dayFields(e)}
           ${splitEditor()}
@@ -987,24 +998,40 @@
   }
   /** 練習日のシートで選べるパート（管理用パスワードで入ったときはホームを読まないので、管理の中身から） */
   function sheetParts() { return (state.admin && state.admin.parts) || state.parts; }
+  /** セクションのパート */
+  function sectionParts(sec) {
+    const ids = sheetParts().map((p) => p.id);
+    return sec === 'strings' ? sheetParts().filter((p) => p.group === 'strings').map((p) => p.id) : (SECTION_PARTS[sec] || []).filter((id) => ids.includes(id));
+  }
+  /** パートごとの内容を書いてよいか（サーバーの canEditSplit と同じ決まり） */
+  function canEditSplit(parts) {
+    if (isAdmin()) return true;
+    const me = state.me || {};
+    if (me.role === 'officer' && parts.length === 1 && parts[0] === me.part) return true;
+    const sec = me.lead ? sectionParts(me.lead) : [];
+    return sec.length > 0 && parts.every((x) => sec.includes(x));
+  }
   /** 1日の練習の中で、パートごとに内容（分奏・パート練習など）を分けて書く欄 */
   function splitEditor() {
     const used = new Set(state.splits.flatMap((sp) => sp.parts));
-    const free = sheetParts().filter((p) => !used.has(p.id));
+    // 選べるのは、まだどの内容にも入っていない、自分が書いてよいパート
+    const free = sheetParts().filter((p) => !used.has(p.id) && canEditSplit([p.id]));
     const pick = state.splitPick;
     const rows = state.splits.map((sp, i) => `<div class="list-row"><span class="ag-bar ${toneOf(sp)}"></span><div class="main"><b>${esc(sp.kind)}</b><small>${esc([sp.parts.join(' '), timeLabel(sp)].filter(Boolean).join('　'))}</small></div>
-        <div class="actions tight"><button type="button" class="ghost icon danger" data-act="split-del" data-i="${i}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('');
-    const groupButton = (g) => {
-      const ids = free.filter((p) => p.group === g).map((p) => p.id);
-      if (!ids.length) return '';
-      return `<button type="button" class="pick-pill" data-act="split-group" data-g="${g}" aria-pressed="${ids.every((id) => pick.includes(id))}">${GROUP_LABEL[g]}</button>`;
+        <div class="actions tight">${canEditSplit(sp.parts) ? `<button type="button" class="ghost icon danger" data-act="split-del" data-i="${i}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`).join('');
+    // セクションのボタン。そのセクションのまだ使っていないパートをまとめて選ぶ（管理者は全部、セクションリーダーは自分のセクション）
+    const groupButton = (sec) => {
+      if (!isAdmin() && (state.me || {}).lead !== sec) return '';
+      const ids = sectionParts(sec).filter((id) => free.some((p) => p.id === id));
+      if (ids.length < 2) return '';
+      return `<button type="button" class="pick-pill" data-act="split-group" data-g="${sec}" aria-pressed="${ids.every((id) => pick.includes(id))}">${SECTION_LABEL[sec]}</button>`;
     };
     const sd = state.splitDraft;
     return `<div class="split full">
         <div class="label-row"><span class="split-title">パートごとの内容</span>${tip('パートごとの内容', '選んだパートの人には、この日の種類と時刻の代わりにこちらを出します。')}</div>
         ${rows ? `<div class="card split-list">${rows}</div>` : ''}
         ${free.length ? `<div class="split-add">
-          <div class="pill-row">${Object.keys(GROUP_LABEL).map(groupButton).join('')}</div>
+          ${Object.keys(SECTION_LABEL).map(groupButton).join('') ? `<div class="pill-row">${Object.keys(SECTION_LABEL).map(groupButton).join('')}</div>` : ''}
           <div class="pill-row">${free.map((p) => `<button type="button" class="pick-pill" data-act="split-part" data-p="${esc(p.id)}" aria-pressed="${pick.includes(p.id)}">${esc(p.id)}</button>`).join('')}</div>
           <div class="form-grid">
             <label class="field full">種類<input class="input" name="skind" list="kinds" value="${esc(sd.kind || '')}" maxlength="20"></label>
@@ -1043,10 +1070,10 @@
   function keepDraft() {
     const f = app.querySelector('form[data-form="days"]');
     if (f) state.draft = Object.fromEntries(new FormData(f));
-    const e = app.querySelector('form[data-form="day"]');
+    const e = app.querySelector('form[data-form="day"], form[data-form="splits"]');
     if (e && state.editDay) {
       const v = Object.fromEntries(new FormData(e));
-      state.editDay = Object.assign({}, state.editDay, v, { noentry: v.noentry ? 1 : 0 });
+      if (e.dataset.form === 'day') state.editDay = Object.assign({}, state.editDay, v, { noentry: v.noentry ? 1 : 0 });
     }
     // パートごとの内容の、入れかけの種類・時刻
     const form = f || e;
@@ -1065,13 +1092,15 @@
     return `<section class="card">
         <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
       </section>
-      ${memberSections(a, (m) => `<div class="list-row">
+      ${memberSections(a, (m) => `<div class="list-row member-row">
           <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選ぶ</span></label>
           <div class="main"><b>${esc(m.name)}</b></div>
           <div class="actions">
             ${resetButton(m)}
             <label class="sr" for="role-${esc(m.id)}">${esc(m.name)}の役割</label>
             <select class="select" id="role-${esc(m.id)}" data-change="role" data-id="${esc(m.id)}">${a.roles.map((r) => `<option value="${r}"${r === m.role ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
+            <label class="sr" for="lead-${esc(m.id)}">${esc(m.name)}のセクションリーダー</label>
+            <select class="select" id="lead-${esc(m.id)}" data-change="lead" data-id="${esc(m.id)}"><option value="">セクションなし</option>${Object.keys(SECTION_LABEL).map((k) => `<option value="${k}"${k === m.lead ? ' selected' : ''}>${SECTION_LABEL[k]}リーダー</option>`).join('')}</select>
           </div></div>`)}
       ${manualLink()}
       <details class="card pad fold"${a.open ? '' : ' open'}>
@@ -1331,7 +1360,7 @@
     'split-group': (el) => {
       keepDraft();
       const used = new Set(state.splits.flatMap((sp) => sp.parts));
-      const ids = sheetParts().filter((p) => p.group === el.dataset.g && !used.has(p.id)).map((p) => p.id);
+      const ids = sectionParts(el.dataset.g).filter((id) => !used.has(id) && canEditSplit([id]));
       const all = ids.every((id) => state.splitPick.includes(id));
       state.splitPick = all ? state.splitPick.filter((x) => !ids.includes(x)) : [...new Set([...state.splitPick, ...ids])];
       render();
@@ -1485,6 +1514,15 @@
       state.daySheet = '';
       await reloadAll();
     }),
+    'splits': () => run(async () => {
+      const d = state.editDay;
+      const r = await api('saveSplits', { id: d.id, splits: state.splits });
+      if (!check(r)) return;
+      state.flash = `${dateLabel(d.date)}を保存しました`;
+      state.editDay = null;
+      state.daySheet = '';
+      await reloadAll();
+    }),
     'days': (f) => run(async () => {
       const dates = state.picked.slice();
       const r = await api('saveDays', Object.assign({}, f, { dates }));
@@ -1541,6 +1579,14 @@
       if (el.checked) set.add(el.value); else set.delete(el.value);
       state.selMembers = [...set];
       render();
+    }
+    if (el.dataset.change === 'lead') {
+      run(async () => {
+        const r = await api('setLead', { id: el.dataset.id, lead: el.value });
+        if (check(r)) state.flash = el.value ? `${SECTION_LABEL[el.value]}のセクションリーダーにしました` : 'セクションリーダーから外しました';
+        await loadAdmin();
+        if (state.me && state.me.id === el.dataset.id) await loadHome();
+      });
     }
     if (el.dataset.change === 'role') {
       run(async () => {

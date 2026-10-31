@@ -23,6 +23,10 @@ export function initSchema(db) {
   if (!hasColumn('days', 'splits')) {
     x("ALTER TABLE days ADD COLUMN splits TEXT NOT NULL DEFAULT '[]'");
   }
+  // セクションリーダーのセクション（strings・woodwinds・brass。空ならセクションリーダーではない）（2026-10-31 から）
+  if (!hasColumn('members', 'lead')) {
+    x("ALTER TABLE members ADD COLUMN lead TEXT NOT NULL DEFAULT ''");
+  }
   x(`CREATE TABLE IF NOT EXISTS answers (day_id TEXT NOT NULL, member_id TEXT NOT NULL, status TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id))`);
   if (!hasColumn('answers', 'at')) {

@@ -659,3 +659,36 @@ test('1日の練習の中で、パートごとに内容を分けて書ける', a
   assert.match(csv, /2026-10-17,分奏,13:00,15:00,青葉花子,Va,出席/);
   assert.match(csv, /2026-10-17,個人練習,13:00,17:00,片平三子,Fl,未回答/);
 });
+
+test('パートごとの内容は、パートリーダーは自分のパート、セクションリーダーは自分のセクションだけ書ける', async () => {
+  const t = await ready();
+  const hrToken = await join(t, '八幡 次郎', 'Hr');
+  const vnToken = await join(t, '青葉 花子', 'Vn');
+  const flToken = await join(t, '上杉 葵', 'Fl');
+  const data = await t.call('adminData', {}, t.adminToken);
+  const id = (name) => data.members.find((m) => m.name === name).id;
+  await t.call('setRole', { id: id('八幡次郎'), role: 'officer' }, t.adminToken);
+  assert.equal((await t.call('setLead', { id: id('青葉花子'), lead: 'strings' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('setLead', { id: id('青葉花子'), lead: 'nope' }, t.adminToken)).ok, false);
+  const save = (token, splits) => t.call('saveSplits', { id: t.dayId, splits }, token);
+  // パートリーダーは自分のパートだけの内容
+  assert.equal((await save(hrToken, [{ parts: ['Hr'], kind: 'パート練習' }])).ok, true);
+  assert.equal((await save(hrToken, [{ parts: ['Hr', 'Tp'], kind: '分奏' }])).code, 'FORBIDDEN');
+  // セクションリーダーは自分のセクションの中だけ。ほかの人の内容は残さないと断る
+  const hr = { parts: ['Hr'], kind: 'パート練習', st: '', en: '' };
+  assert.equal((await save(vnToken, [{ parts: ['Vn', 'Va', 'Vc', 'Cb'], kind: '分奏' }])).code, 'FORBIDDEN');
+  const r = await save(vnToken, [hr, { parts: ['Vn', 'Va', 'Vc', 'Cb'], kind: '分奏' }]);
+  assert.equal(r.ok, true, r.message);
+  assert.equal((await save(vnToken, [hr, { parts: ['Vn', 'Fl'], kind: '分奏' }])).code, 'FORBIDDEN');
+  // セクションリーダーでもパートリーダーでもない人は使えない
+  assert.equal((await save(flToken, [])).code, 'FORBIDDEN');
+  assert.equal((await t.call('adminData', {}, flToken)).code, 'FORBIDDEN');
+  // セクションリーダーは管理の練習日を読めるが、団員の一覧は受け取らない
+  const lead = await t.call('adminData', {}, vnToken);
+  assert.equal(lead.ok, true);
+  assert.equal(lead.members, undefined);
+  // パートリーダーが練習日を直すときも、ほかの人の内容は変えられない
+  const day = { id: t.dayId, date: '2026-10-17', kind: '分奏' };
+  assert.equal((await t.call('saveDay', Object.assign({ splits: [] }, day), hrToken)).code, 'FORBIDDEN');
+  assert.equal((await t.call('saveDay', Object.assign({ splits: r.days[0].splits }, day), hrToken)).ok, true);
+});

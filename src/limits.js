@@ -24,6 +24,11 @@ export const PARTS = [
 // パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
 export const GROUPS = ['strings', 'winds'];
 
+// セクション: 弦・木管・金管。セクションリーダーは自分のセクションの中で、パートごとの内容（分奏など）を書ける。
+// 打楽器はセクション練習に含めない。弦は弦の組のパート全部、木管と金管は下のパートで決める
+export const SECTIONS = { strings: '弦', woodwinds: '木管', brass: '金管' };
+export const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
+
 // 役割: member（団員）・officer（パートリーダー。欠席理由を読め、練習日を登録できる）・admin（管理者）
 export const ROLES = ['member', 'officer', 'admin'];
 

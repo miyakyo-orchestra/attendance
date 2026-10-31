@@ -11,16 +11,18 @@
 
 import { ALGS, bytesOf, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
 import { DUMMY_HASH, toB64url, randomId, sha256, hashSecret, verifySecret } from './secret.js';
-import { GROUPS, LIMITS, PARTS, ROLES, STATUSES, STATUS_LABEL, DAY_MS } from './limits.js';
+import { GROUPS, LIMITS, PARTS, ROLES, SECTIONS, SECTION_PARTS, STATUSES, STATUS_LABEL, DAY_MS } from './limits.js';
 import { initSchema } from './schema.js';
 import {
   SAME_NAME, TIME, bare, cleanText, count, csvCell, cut, isDate, jstTime, originOf, personName, tempPin, yearRange,
 } from './util.js';
 
-export { GROUPS, LIMITS, PARTS, ROLES, STATUS_LABEL, STATUSES } from './limits.js';
+export { GROUPS, LIMITS, PARTS, ROLES, SECTIONS, STATUS_LABEL, STATUSES } from './limits.js';
 
 /** パートリーダーか管理者か（欠席理由を読め、練習日を登録できる） */
 function isOfficer(role) { return role === 'officer' || role === 'admin'; }
+/** 練習日の管理の画面に入れるか（パートリーダー・セクションリーダー・管理者） */
+function isLead(who) { return isOfficer(who.role) || !!(who.member && SECTIONS[who.member.lead]); }
 
 export class Store {
   /**
@@ -152,6 +154,7 @@ export class Store {
       mei: m ? m.mei : '',
       part: m ? m.part : '',
       role: who.role,
+      lead: m && SECTIONS[m.lead] ? m.lead : '',
       canReadReasons: isOfficer(who.role),
     };
   }
@@ -168,6 +171,35 @@ export class Store {
     return PARTS;
   }
   partIds() { return this.parts().map((p) => p.id); }
+  /** セクションのパート。弦は弦の組のパート全部、木管と金管は決まったパートのうち今あるもの */
+  sectionParts(section) {
+    if (section === 'strings') return this.parts().filter((p) => p.group === 'strings').map((p) => p.id);
+    return (SECTION_PARTS[section] || []).filter((id) => this.partIds().includes(id));
+  }
+  /**
+   * パートごとの内容（分奏など）を書いてよいか。管理者は全部、パートリーダーは自分のパートだけの内容、
+   * セクションリーダーは自分のセクションの中のパートだけの内容
+   */
+  canEditSplit(who, parts) {
+    if (who.role === 'admin') return true;
+    const m = who.member;
+    if (!m) return false;
+    if (who.role === 'officer' && parts.length === 1 && parts[0] === m.part) return true;
+    const sec = SECTIONS[m.lead] ? this.sectionParts(m.lead) : [];
+    return sec.length > 0 && parts.every((x) => sec.includes(x));
+  }
+  /**
+   * 送られてきたパートごとの内容を、書いてよい分だけ受ける。書けない内容は、前のまま残っていなければ断る
+   * （ほかの人の内容を足したり、変えたり、消したりはできない）。前の内容は old
+   */
+  checkSplits(who, old, next) {
+    if (who.role === 'admin') return null;
+    const key = (s) => JSON.stringify([s.parts, s.kind, s.st, s.en]);
+    const oldOthers = old.filter((s) => !this.canEditSplit(who, s.parts)).map(key);
+    const nextOthers = next.filter((s) => !this.canEditSplit(who, s.parts)).map(key);
+    const same = oldOthers.length === nextOthers.length && oldOthers.every((k) => nextOthers.includes(k));
+    return same ? null : (who.role === 'officer' ? '自分のパートの内容' : '自分のセクションの内容') + 'だけを変えられます。';
+  }
 
   /** パスキーの相手のサイト（ALLOWED_ORIGIN）と、その名前（rpId） */
   site() {
@@ -234,11 +266,13 @@ export class Store {
 const ALLOWED = {
   any: () => true,
   member: (who) => !!who.member,
+  lead: (who) => isLead(who),
   officer: (who) => isOfficer(who.role),
   admin: (who) => who.role === 'admin',
 };
 const DENIED = {
   member: '団員としてログインしてください。',
+  lead: 'パートリーダー・セクションリーダー・管理者だけが使えます。',
   officer: 'パートリーダーと管理者だけが使えます。',
   admin: '管理者だけが使えます。',
 };
@@ -480,21 +514,26 @@ const PRIVATE = {
 
   // ---------------- 管理者 ----------------
   /** 管理画面に出すもの。パートリーダーには練習日だけを返す */
-  adminData: ['officer', function (p, who) {
+  adminData: ['lead', function (p, who) {
+    // セクションリーダー（パートリーダーでない人）には練習日だけ
+    if (!isOfficer(who.role)) return { ok: true, days: this.listDays(), parts: this.parts() };
     // パートリーダーには、暗証番号の再設定のために団員の氏名・パート・役割も返す
     if (who.role !== 'admin') return { ok: true, days: this.listDays(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
-    const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
-    return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
+    const members = this.db.exec('SELECT id, name, part, role, lead, created_at FROM members ORDER BY name');
+    return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, sections: SECTIONS, parts: this.parts() };
   }],
 
-  saveDay: ['officer', function (p) {
+  saveDay: ['officer', function (p, who) {
     const date = String(p.date || '');
     if (!isDate(date)) return fail('日付を入れてください。');
     const f = dayFields(p, this.partIds());
     if (f.error) return fail(f.error);
     let id = String(p.id || '');
+    const row = id ? this.db.exec('SELECT splits FROM days WHERE id = ?', id)[0] : { splits: '[]' };
+    if (!row) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const denied = this.checkSplits(who, withSplits(row).splits, f.splits);
+    if (denied) return fail(denied, 'FORBIDDEN');
     if (id) {
-      if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) return fail('練習日が見つかりません。', 'NOT_FOUND');
       // 出欠をとらない予定に変えると、その日の出欠は消す。入っていれば、先に画面で確かめてもらう（dropAnswers）
       const n = f.noentry ? this.db.exec('SELECT COUNT(*) AS n FROM answers WHERE day_id = ?', id)[0].n : 0;
       if (n && p.dropAnswers !== true) return fail(`${n}人の出欠も消えます。出欠をとらない予定にしますか？`, 'HAS_ANSWERS');
@@ -509,15 +548,29 @@ const PRIVATE = {
   }],
 
   /** 同じ種類・時刻・メモの練習日を、いくつもの日付にまとめて足す */
-  saveDays: ['officer', function (p) {
+  saveDays: ['officer', function (p, who) {
     const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
     if (!dates.length) return fail('日付を選んでください。');
     if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
     if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
     const f = dayFields(p, this.partIds());
     if (f.error) return fail(f.error);
+    const denied = this.checkSplits(who, [], f.splits);
+    if (denied) return fail(denied, 'FORBIDDEN');
     this.db.txn(() => { for (const date of dates) this.addDay(date, f); });
     return { ok: true, added: dates.length, days: this.listDays() };
+  }],
+
+  /** パートごとの内容だけを直す。パートリーダーとセクションリーダーは自分の分だけ */
+  saveSplits: ['lead', function (p, who) {
+    const row = this.db.exec('SELECT * FROM days WHERE id = ? AND noentry = 0', String(p.id || ''))[0];
+    if (!row) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const s = splitFields(p.splits, this.partIds());
+    if (s.error) return fail(s.error);
+    const denied = this.checkSplits(who, withSplits(row).splits, s.list);
+    if (denied) return fail(denied, 'FORBIDDEN');
+    this.db.exec('UPDATE days SET splits = ? WHERE id = ?', JSON.stringify(s.list), row.id);
+    return { ok: true, id: row.id, days: this.listDays() };
   }],
 
   deleteDay: ['officer', function (p) {
@@ -536,6 +589,15 @@ const PRIVATE = {
       return fail('管理者が1人もいなくなるため、外せません。先にほかの人を管理者にしてください。', 'LAST_ADMIN');
     }
     this.db.exec('UPDATE members SET role = ? WHERE id = ?', role, id);
+    return { ok: true };
+  }],
+
+  /** セクションリーダーにする（lead は strings・woodwinds・brass、空なら外す） */
+  setLead: ['admin', function (p) {
+    const lead = String(p.lead || '');
+    if (lead && !SECTIONS[lead]) return fail('セクションが正しくありません。');
+    if (!this.member(String(p.id || ''))) return fail('団員が見つかりません。', 'NOT_FOUND');
+    this.db.exec('UPDATE members SET lead = ? WHERE id = ?', lead, String(p.id));
     return { ok: true };
   }],
 
