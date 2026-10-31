@@ -412,7 +412,8 @@ main.auth h1 { font-size: 26px; }
 .mv-cell.today .mv-num { background: var(--danger); color: var(--on-accent); font-weight: 700; }
 .mv-ev { display: flex; align-items: center; gap: 3px; height: 18px; font-size: 11px; border-radius: 5px; padding: 0 3px; white-space: nowrap; overflow: hidden; font-weight: 500; text-align: left; }
 .mv-ev .dot { flex: none; width: 8px; height: 8px; }
-.mv-name { overflow: hidden; min-width: 0; -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
+.mv-name { overflow: hidden; min-width: 0; }
+.mv-name.cut { -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
 .mv-ev.part { background: var(--part-soft); color: var(--part); }
 .mv-ev.tutti { background: var(--tutti-soft); color: var(--tutti); }
 .mv-ev.stage { background: var(--stage-soft); color: var(--stage); }
@@ -497,27 +498,28 @@ body.sheet-open { overflow: hidden; }
 .plan-chip.part { background: var(--part-soft); color: var(--part); }
 .plan-chip.tutti { background: var(--tutti-soft); color: var(--tutti); }
 .plan-chip.stage { background: var(--stage-soft); color: var(--stage); }
-/* その日の練習の中の、自分のパートの内容（分奏など）。親の練習の下に字下げし、枝の線でつなぐ */
-.elbow { flex: none; align-self: flex-start; width: 12px; height: 50%; min-height: 12px; border-left: 2px solid var(--field); border-bottom: 2px solid var(--field); border-bottom-left-radius: 6px; }
-.sub-plan { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 15px; color: var(--ink); }
-.sub-plan .elbow { align-self: flex-start; height: 11px; min-height: 0; margin-left: 2px; }
-.sub-plan .ag-bar { height: 16px; align-self: center; }
-.ag-row.sub { background-image: none; margin-top: -10px; }
-.ag-row.sub .day-open { min-height: 48px; padding: 0 4px 10px 70px; align-items: stretch; gap: 8px; }
-.ag-row.sub .elbow { height: 22px; min-height: 0; margin-left: 2px; }
-.ag-row.sub .ag-bar { align-self: center; height: 34px; }
-.ag-row.sub .main { justify-content: center; }
-.ag-sub-title { font-size: 15px; font-weight: 600; }
-.ag-row.sub .meta { font-size: 13px; }
-.mv-ev.sub { margin-left: 5px; }
+/* 自分のパートの内容がある日の時間割。各行の左の色の縦線がつながり、上から順に塗り替わる */
+.ag-bar.blank { background: none; }
+.seg-lines { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.seg-line { display: flex; align-items: stretch; gap: 8px; font-size: 15px; line-height: 1.5; }
+.seg-piece { flex: none; width: 4px; border-radius: 2px; background: var(--grey); }
+.seg-piece.part { background: var(--part); }
+.seg-piece.tutti { background: var(--tutti); }
+.seg-piece.stage { background: var(--stage); }
+.seg-time { flex: none; color: var(--sub); font-variant-numeric: tabular-nums; }
+.seg-kind { font-weight: 600; min-width: 0; }
+.seg-lines.agenda { gap: 2px; margin: 0; }
+.seg-lines.agenda .seg-line { gap: 10px; font-size: 17px; }
+.seg-lines.agenda .ag-time { justify-content: center; }
+.seg-lines.agenda .seg-kind { font-weight: 700; }
+.seg-note { margin-left: 68px; }
 /* 管理者の団員の行。役割とセクションリーダーの二つの選ぶ欄を、氏名の下の段に並べる */
 .member-row { flex-wrap: wrap; }
 .member-row .actions { flex-basis: 100%; display: flex; gap: 8px; }
 .member-row .actions .select { flex: 1; min-width: 0; }
 .split-list .list-row.editing { background-color: var(--blue-soft); }
 .split-list .ghost.icon[aria-pressed="true"] { color: var(--blue); }
-/* 出欠の入力の、パートの内容が一部だけの日の時間割 */
-.schedule { padding: 4px 0; }
-.sched-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; font-size: 15px; }
-.sched-row .ag-bar { height: 20px; align-self: center; }
-.sched-time { width: 104px; flex: none; font-variant-numeric: tabular-nums; color: var(--sub); }
+/* 出欠の入力の時間割 */
+.schedule { padding: 12px 16px; }
+.schedule .seg-lines { gap: 3px; }
+.schedule .seg-line { font-size: 17px; line-height: 2; gap: 10px; }

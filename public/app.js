@@ -327,13 +327,6 @@
     return (d.splits || []).filter((x) => x.parts.includes(part)).map((x) => ({ kind: x.kind, st: x.st || d.st, en: x.en || d.en }))
       .sort((a, b) => (a.st || '').localeCompare(b.st || ''));
   }
-  /** 親の練習の色。中に合奏があれば合奏、本番などがあればその色 */
-  function parentTone(d) {
-    const tones = splitPlans(d).map(toneOf);
-    if (tones.includes('stage')) return 'stage';
-    if (tones.includes('tutti')) return 'tutti';
-    return toneOf(d);
-  }
   /**
    * その日の自分の時間割。中の予定のない時間は、その日の内容（個人練習など）のまま。
    * [{ kind, st, en, tone }] を時刻の順に返す
@@ -352,11 +345,18 @@
     if (at < d.en) out.push({ kind: d.kind, st: at, en: d.en, tone: toneOf(d) });
     return out;
   }
+  /**
+   * 時間割の行を時刻の順に。各行の左に内容の色の縦線を付け、縦線が上から順に塗り替わって見えるようにする。
+   * agenda はカレンダーの下の予定の形（左の時刻の欄に開始の時刻だけ）
+   */
+  function segLines(sc, agenda) {
+    return `<span class="seg-lines${agenda ? ' agenda' : ''}">${sc.map((x) => `<span class="seg-line">${agenda ? `<span class="ag-time"><b>${esc(x.st || '')}</b></span>` : ''}<i class="seg-piece ${x.tone}"></i>${agenda ? '' : `<span class="seg-time">${esc(timeLabel(x))}</span>`}<span class="seg-kind">${esc(x.kind || '練習')}</span></span>`).join('')}</span>`;
+  }
   /** 自分の時間割を、時刻と種類の行で並べる（パートの内容がある日） */
   function scheduleRows(d) {
     if (!splitPlans(d).length) return '';
     const sc = scheduleOf(d);
-    return `<div class="card schedule">${sc.map((x) => `<div class="sched-row"><span class="ag-bar ${x.tone}"></span><span class="sched-time">${esc(timeLabel(x))}</span><span>${esc(x.kind || '練習')}</span></div>`).join('')}</div>`;
+    return `<div class="card schedule">${segLines(sc)}</div>`;
   }
   /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
   function toneOf(d) {
@@ -380,6 +380,8 @@
     if (app.querySelector('.sheet-body')) app.querySelector('.sheet-body').scrollTop = sheetTop; // 日付を選んで描き直しても、シートの中の位置を保つ
     // 時刻の欄は、描いたあとで値を入れる。value に書くと、iPhone の「リセット」がその値に戻すだけで空にならないため
     app.querySelectorAll('input[type="time"][data-value]').forEach((el) => { el.value = el.dataset.value; });
+    // カレンダーの札の名前は、収まらないときだけ端を薄れさせる
+    app.querySelectorAll('.mv-name').forEach((el) => { el.classList.toggle('cut', el.scrollWidth > el.clientWidth + 1); });
     const sheet = app.querySelector('.sheet');
     document.body.classList.toggle('sheet-open', !!sheet);
     keepFocus(sheet, hadSheet, focused);
@@ -669,7 +671,8 @@
   function dayRow(d, isPast) {
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${parentTone(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span>${splitPlans(d).map((sp) => `<span class="sub-plan"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span>${esc(metaLabel(sp))}</span>`).join('')}</span>
+      ${splitPlans(d).length ? `<span class="ag-bar blank"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span>${segLines(scheduleOf(d))}</span>`
+    : `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>`}
     </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
@@ -685,12 +688,12 @@
     const g = monthGrid(ym);
     if (monthOf(state.calDate) !== ym) state.calDate = defaultCalDate(ym);
     const byDate = {};
-    // 自分のパートの内容（分奏など）は、その日の練習とは別の札にする。出欠の点はその日の練習の札にだけ付ける
+    // 自分のパートの内容（分奏など）がある日は、時間割の順に札を並べる（個人練習・パート練習・個人練習のように）。出欠の点は最初の札にだけ付ける
     for (const day of state.events) {
       if (monthOf(day.date) !== ym) continue;
       const list = (byDate[day.date] = byDate[day.date] || []);
-      list.push(Object.assign({}, day, { tone: parentTone(day) }));
-      for (const sp of splitPlans(day)) list.push(Object.assign({}, sp, { id: day.id, sub: true }));
+      if (!splitPlans(day).length) { list.push(day); continue; }
+      scheduleOf(day).forEach((x, i) => list.push(Object.assign({}, x, { id: day.id, noentry: day.noentry, sub: i > 0 })));
     }
     const withDot = (d) => !d.noentry && !d.sub && isMember(); // 自分の出欠の点を付けるか
     let cells = '';
@@ -704,7 +707,7 @@
       const label = `${g.m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (withDot(d) ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
       cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
-        ${shown.map((d) => `<span class="mv-ev ${d.tone || toneOf(d)}${d.sub ? ' sub' : ''}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
+        ${shown.map((d) => `<span class="mv-ev ${d.tone || toneOf(d)}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
@@ -722,12 +725,15 @@
     const rows = ds.map((d) => {
       const sub = d.note;
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
-      const main = `<span class="ag-bar ${parentTone(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${sub ? `<span class="meta">${esc(sub)}</span>` : ''}</span>`;
+      // 自分のパートの内容がある日は、一つの行の中に時間割を時刻の順に並べ、縦の線も切り替わりの順に塗り分ける
+      if (splitPlans(d).length) {
+        // 左の時刻の欄に各内容の開始の時刻を、その右に色の縦線と種類を並べる
+        const lines = `<span class="main">${segLines(scheduleOf(d), true)}${sub ? `<span class="meta seg-note">${esc(sub)}</span>` : ''}</span>`;
+        return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${lines}</button>${isMember() ? answerButtons(d, past) : ''}</div>`;
+      }
+      const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${sub ? `<span class="meta">${esc(sub)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
-      // 自分のパートの内容（分奏など）は、その下に別の行で出す。押すとその日の出欠の入力
-      // その日の練習の中の予定として、字下げして枝の線でつなぐ
-      const spRow = splitPlans(d).map((sp) => `<div class="ag-row has-pill sub"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}" aria-label="${esc(`${dateLabel(d.date)}の${d.kind || '練習'}の中の${metaLabel(sp)}`)}"><span class="elbow" aria-hidden="true"></span><span class="ag-bar ${toneOf(sp)}"></span><span class="main"><span class="ag-sub-title">${esc(sp.kind)}</span>${timeLabel(sp) ? `<span class="meta">${esc(timeLabel(sp))}</span>` : ''}</span></button></div>`).join('');
-      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>${spRow}`;
+      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
       <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
@@ -742,7 +748,7 @@
     return page(`
       <div class="title-block">
         <h1 class="title-date">${esc(dateLabel(d.date))}</h1>
-        <p class="title-meta">${esc(metaLabel(d))}</p>
+        <p class="title-meta">${esc(splitPlans(d).length ? timeLabel(d) : metaLabel(d))}</p>
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
       ${scheduleRows(d)}
@@ -783,7 +789,7 @@
       <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p></div>
+          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(splitPlans(d).length ? scheduleOf(d).map((x) => x.kind).join('・') : metaLabel(d))}</p></div>
           <button class="icon close-round" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>
