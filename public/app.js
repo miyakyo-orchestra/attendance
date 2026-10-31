@@ -321,9 +321,39 @@
   }
   /** その日の自分の内容。パートごとに分けた内容に自分のパートがあればその種類と時刻、なければその日のもの */
   function planOf(d) {
+    const s = mySplit(d);
+    return s ? Object.assign({}, d, { kind: s.kind, st: s.st || d.st, en: s.en || d.en }) : d;
+  }
+  function mySplit(d) {
     const part = state.me && state.me.part;
-    const s = part && (d.splits || []).find((x) => x.parts.includes(part));
-    return s ? Object.assign({}, d, { kind: s.kind, st: s.st, en: s.en }) : d;
+    return (part && (d.splits || []).find((x) => x.parts.includes(part))) || null;
+  }
+  /**
+   * その日の自分の時間割。パートの内容がその日の時間の一部だけなら、前後はその日の内容（個人練習など）のまま。
+   * [{ kind, st, en, tone }] を時刻の順に返す
+   */
+  function scheduleOf(d) {
+    const s = mySplit(d);
+    const p = planOf(d);
+    if (!s || !d.st || !d.en || !s.st || !s.en || (s.st <= d.st && s.en >= d.en)) return [{ kind: p.kind, st: p.st, en: p.en, tone: toneOf(p) }];
+    const out = [];
+    if (s.st > d.st) out.push({ kind: d.kind, st: d.st, en: s.st, tone: toneOf(d) });
+    out.push({ kind: s.kind, st: s.st, en: s.en, tone: toneOf(p) });
+    if (s.en < d.en) out.push({ kind: d.kind, st: s.en, en: d.en, tone: toneOf(d) });
+    return out;
+  }
+  /** 自分の時間割を1行に。パートの内容が一部だけの日は「個人練習 13:00〜17:00（14:00〜16:00 パート練習）」の形 */
+  function myMeta(d) {
+    const sc = scheduleOf(d);
+    if (sc.length === 1) return metaLabel(sc[0]);
+    const s = mySplit(d);
+    return `${metaLabel(d)}（${timeLabel(s)} ${s.kind}）`;
+  }
+  /** 自分の時間割を、時刻と種類の行で並べる（パートの内容が一部だけの日） */
+  function scheduleRows(d) {
+    const sc = scheduleOf(d);
+    if (sc.length === 1) return '';
+    return `<div class="card schedule">${sc.map((x) => `<div class="sched-row"><span class="ag-bar ${x.tone}"></span><span class="sched-time">${esc(timeLabel(x))}</span><span>${esc(x.kind || '練習')}</span></div>`).join('')}</div>`;
   }
   /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
   function toneOf(d) {
@@ -636,7 +666,7 @@
   function dayRow(d, isPast) {
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${toneOf(planOf(d))}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(planOf(d)))}</span></span>
+      <span class="ag-bar ${toneOf(planOf(d))}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(myMeta(d))}</span></span>
     </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
@@ -681,9 +711,10 @@
     const ds = state.events.filter((d) => d.date === date);
     const past = date < state.today;
     const rows = ds.map((day) => {
-      const d = planOf(day);
+      const d = scheduleOf(day).length > 1 ? Object.assign({}, planOf(day), { st: day.st, en: day.en }) : planOf(day);
+      const sub = scheduleOf(day).length > 1 ? myMeta(day) : d.note;
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
-      const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
+      const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${sub ? `<span class="meta">${esc(sub)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
       return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>`;
     }).join('');
@@ -700,9 +731,10 @@
     return page(`
       <div class="title-block">
         <h1 class="title-date">${esc(dateLabel(d.date))}</h1>
-        <p class="title-meta">${esc(metaLabel(planOf(d)))}</p>
+        <p class="title-meta">${esc(myMeta(d))}</p>
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
+      ${scheduleRows(d)}
       ${messages()}
       ${answerForm(d, a, past, ['attend', 'late', 'early', 'absent'])}
     `, { back: ['go-home', '練習日'] });
@@ -740,7 +772,7 @@
       <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(planOf(d)))}</p></div>
+          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(myMeta(d))}</p></div>
           <button class="icon close-round" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>

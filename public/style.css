@@ -501,3 +501,8 @@ body.sheet-open { overflow: hidden; }
 .member-row .actions .select { flex: 1; min-width: 0; }
 .split-list .list-row.editing { background-color: var(--blue-soft); }
 .split-list .ghost.icon[aria-pressed="true"] { color: var(--blue); }
+/* 出欠の入力の、パートの内容が一部だけの日の時間割 */
+.schedule { padding: 4px 0; }
+.sched-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; font-size: 15px; }
+.sched-row .ag-bar { height: 20px; align-self: center; }
+.sched-time { width: 104px; flex: none; font-variant-numeric: tabular-nums; color: var(--sub); }
