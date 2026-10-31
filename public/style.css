@@ -520,7 +520,14 @@ body.sheet-open { overflow: hidden; }
 .split { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 4px; }
 .split-title { font-size: 13px; font-weight: 600; color: var(--ink); }
 .split-list { border: 1px solid var(--line); box-shadow: none; }
-.split-add { display: flex; flex-direction: column; gap: 8px; }
+/* 足す欄は「内容を足す」を押したときだけ開く。開くと パート・種類・時刻 の順に並べ、最後に やめる と 足す */
+.split-add { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg); }
+.split-form-title { font-size: 15px; }
+.split-new { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0; border: none; background: none; color: var(--blue); font-size: 17px; }
+.split-new svg { width: 20px; height: 20px; stroke-width: 2.2; }
+.split-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.split-add .ghost.primary { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.split-add .ghost.primary:disabled { background: var(--muted); border-color: var(--muted); color: var(--grey); }
 .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .pick-pill { min-height: 36px; min-width: 44px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--field); background: var(--surface); font-size: 14px; font-weight: 500; }
 .pick-pill[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }

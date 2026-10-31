@@ -95,6 +95,7 @@
     splitPick: [], // パートごとの内容を足すために選んでいるパート
     splitEdit: -1, // 直しているパートごとの内容の番号（-1 は新しく足す）
     splitDraft: {}, // パートごとの内容の、入れかけの種類・時刻
+    splitOpen: false, // パートごとの内容を足す・直す欄を開いているか
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
   };
@@ -1115,16 +1116,21 @@
     return `<div class="split full">
         <div class="label-row"><span class="split-title">パートごとの内容</span>${tip('パートごとの内容', '選んだパートの人には、この日の種類と時刻の代わりにこちらを出します。')}</div>
         ${rows ? `<div class="card split-list">${rows}</div>` : ''}
-        ${free.length ? `<div class="split-add">
+        ${!free.length ? '' : !state.splitOpen ? `<button type="button" class="split-new" data-act="split-open">${ICON.plus}内容を足す</button>` : `<div class="split-add">
+          <b class="split-form-title">${editing ? `${esc(state.splits[state.splitEdit].kind)}を直す` : '新しい内容'}</b>
+          <span class="field">パート</span>
           ${Object.keys(SECTION_LABEL).map(groupButton).join('') ? `<div class="pill-row">${Object.keys(SECTION_LABEL).map(groupButton).join('')}</div>` : ''}
           <div class="pill-row">${free.map((p) => `<button type="button" class="pick-pill" data-act="split-part" data-p="${esc(p.id)}" aria-pressed="${pick.includes(p.id)}">${esc(p.id)}</button>`).join('')}</div>
           <div class="form-grid">
             <label class="field full">種類<input class="input" name="skind" list="kinds" value="${esc(sd.kind || '')}" maxlength="20"></label>
             <label class="field">開始<input class="input" type="time" name="sst" data-value="${esc(sd.st || '')}"></label>
             <label class="field">終了<input class="input" type="time" name="sen" data-value="${esc(sd.en || '')}"></label>
-            <button type="button" class="ghost full" data-act="split-add"${pick.length ? '' : ' disabled'}>${!pick.length ? 'パートを選ぶ' : editing ? `${pick.join(' ')} を直す` : `${pick.join(' ')} に足す`}</button>
           </div>
-        </div>` : ''}
+          <div class="split-btns">
+            <button type="button" class="ghost" data-act="split-cancel">やめる</button>
+            <button type="button" class="ghost primary" data-act="split-add"${pick.length ? '' : ' disabled'}>${editing ? '直す' : '足す'}</button>
+          </div>
+        </div>`}
         <input type="hidden" name="splits" value="${esc(JSON.stringify(state.splits))}">
       </div>`;
   }
@@ -1427,7 +1433,7 @@
 
     // 管理
     'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.tempPin = null; state.editDay = null; state.daySheet = ''; render(); },
-    'add-day': () => { state.editDay = null; state.splits = []; state.splitPick = []; state.splitEdit = -1; state.splitDraft = {}; openSheet('add'); },
+    'add-day': () => { state.editDay = null; state.splits = []; state.splitPick = []; state.splitEdit = -1; state.splitDraft = {}; state.splitOpen = false; openSheet('add'); },
     'edit-day': (el) => {
       state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null;
       if (!state.editDay) return;
@@ -1435,6 +1441,7 @@
       state.splitPick = [];
       state.splitEdit = -1;
       state.splitDraft = {};
+      state.splitOpen = false;
       openSheet('edit');
     },
     'split-part': (el) => {
@@ -1470,21 +1477,26 @@
       state.splitEdit = -1;
       state.splitPick = [];
       state.splitDraft = {};
+      state.splitOpen = false;
       state.error = '';
       render();
     },
+    // 内容を足す欄を開く・やめる
+    'split-open': () => { keepDraft(); state.splitOpen = true; state.splitEdit = -1; state.splitPick = []; state.splitDraft = {}; render(); },
+    'split-cancel': () => { keepDraft(); state.splitOpen = false; state.splitEdit = -1; state.splitPick = []; state.splitDraft = {}; state.error = ''; render(); },
     'split-edit': (el) => {
       keepDraft();
       const i = Number(el.dataset.i);
       // もう一度押すと直すのをやめる
-      if (state.splitEdit === i) { state.splitEdit = -1; state.splitPick = []; state.splitDraft = {}; render(); return; }
+      if (state.splitEdit === i) { state.splitEdit = -1; state.splitPick = []; state.splitDraft = {}; state.splitOpen = false; render(); return; }
       const sp = state.splits[i];
       state.splitEdit = i;
       state.splitPick = sp.parts.slice();
       state.splitDraft = { kind: sp.kind, st: sp.st, en: sp.en };
+      state.splitOpen = true;
       render();
     },
-    'split-del': (el) => { keepDraft(); state.splitEdit = -1; state.splitPick = []; state.splits = state.splits.filter((x, i) => i !== Number(el.dataset.i)); render(); },
+    'split-del': (el) => { keepDraft(); state.splitEdit = -1; state.splitPick = []; state.splitOpen = false; state.splits = state.splits.filter((x, i) => i !== Number(el.dataset.i)); render(); },
     'close-sheet': () => { keepDraft(); closeSheet(); },
     'copy-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
@@ -1495,6 +1507,7 @@
       state.splitPick = [];
       state.splitEdit = -1;
       state.splitDraft = {};
+      state.splitOpen = false;
       state.picked = [];
       openSheet('add');
     },
