@@ -19,6 +19,10 @@ export function initSchema(db) {
   if (!hasColumn('days', 'noentry')) {
     x('ALTER TABLE days ADD COLUMN noentry INTEGER NOT NULL DEFAULT 0');
   }
+  // 練習日の中の、組やパートごとの内容（分奏・パート練習など）。[{ parts, kind, st, en }] を JSON で置く（2026-10-31 から）
+  if (!hasColumn('days', 'splits')) {
+    x("ALTER TABLE days ADD COLUMN splits TEXT NOT NULL DEFAULT '[]'");
+  }
   x(`CREATE TABLE IF NOT EXISTS answers (day_id TEXT NOT NULL, member_id TEXT NOT NULL, status TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (day_id, member_id))`);
   if (!hasColumn('answers', 'at')) {

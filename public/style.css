@@ -481,3 +481,17 @@ body.sheet-open { overflow: hidden; }
 .ans-sheet .sheet-head h2 { margin: 0; font-size: 18px; }
 .ans-sheet .sheet-head .title-meta { margin: 2px 0 0; }
 .ans-sheet .sheet-head .icon { margin-top: -6px; }
+
+/* 練習日のシートの、パートごとの内容（分奏・パート練習など） */
+.split { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 4px; }
+.split-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.split-list { border: 1px solid var(--line); box-shadow: none; }
+.split-add { display: flex; flex-direction: column; gap: 8px; }
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick-pill { min-height: 36px; min-width: 44px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--field); background: var(--surface); font-size: 14px; font-weight: 500; }
+.pick-pill[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.split-add .ghost { display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--blue); }
+.split-add .ghost:disabled { color: var(--grey); }
+/* 一覧で、同じ内容のパートをまとめた見出し */
+.plan-label { display: flex; align-items: center; gap: 8px; margin: 6px 0 -2px; padding: 0 4px; font-size: 15px; font-weight: 700; }
+.plan-label .ag-bar { height: 18px; }

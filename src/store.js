@@ -159,7 +159,7 @@ export class Store {
     return this.db.exec("SELECT COUNT(*) AS n FROM members WHERE role = 'admin'")[0].n;
   }
   listDays() {
-    return this.db.exec('SELECT id, date, kind, st, en, note, noentry FROM days ORDER BY date, st');
+    return this.db.exec('SELECT id, date, kind, st, en, note, noentry, splits FROM days ORDER BY date, st').map(withSplits);
   }
   /** 今のパートの一覧 [{ id, group }] */
   parts() {
@@ -204,7 +204,7 @@ export class Store {
   /** 練習日を1つ足す。f は dayFields で確かめたもの */
   addDay(date, f) {
     const id = randomId(9);
-    this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry) VALUES (?, ?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note, f.noentry);
+    this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry, splits) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, date, f.kind, f.st, f.en, f.note, f.noentry, JSON.stringify(f.splits));
     return id;
   }
   /** 練習日を、その出欠ごと消す（呼ぶ側で db.txn に入れる） */
@@ -462,8 +462,9 @@ const PRIVATE = {
 
   /** 練習日ごとの、パート別の出欠。欠席理由は本人と、パートリーダー・管理者にだけ入れる */
   roster: ['any', function (p, who) {
-    const day = this.db.exec('SELECT id, date, kind, st, en, note FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
-    if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const row = this.db.exec('SELECT id, date, kind, st, en, note, splits FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
+    if (!row) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    const day = withSplits(row);
     const canRead = isOfficer(who.role);
     const selfId = who.member ? who.member.id : '';
     const rows = this.db.exec(`SELECT m.id, m.name, m.part, a.status, a.reason, a.at FROM members m
@@ -489,7 +490,7 @@ const PRIVATE = {
   saveDay: ['officer', function (p) {
     const date = String(p.date || '');
     if (!isDate(date)) return fail('日付を入れてください。');
-    const f = dayFields(p);
+    const f = dayFields(p, this.partIds());
     if (f.error) return fail(f.error);
     let id = String(p.id || '');
     if (id) {
@@ -499,7 +500,7 @@ const PRIVATE = {
       if (n && p.dropAnswers !== true) return fail(`${n}人の出欠も消えます。出欠をとらない予定にしますか？`, 'HAS_ANSWERS');
       this.db.txn(() => {
         if (n) this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
-        this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, id);
+        this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ?, splits = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, JSON.stringify(f.splits), id);
       });
     } else {
       id = this.addDay(date, f);
@@ -513,7 +514,7 @@ const PRIVATE = {
     if (!dates.length) return fail('日付を選んでください。');
     if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
     if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
-    const f = dayFields(p);
+    const f = dayFields(p, this.partIds());
     if (f.error) return fail(f.error);
     this.db.txn(() => { for (const date of dates) this.addDay(date, f); });
     return { ok: true, added: dates.length, days: this.listDays() };
@@ -626,21 +627,26 @@ const PRIVATE = {
   /** CSV の書き出し。year を渡すとその年度の練習日だけ */
   exportCsv: ['admin', function (p) {
     const [from, to] = p && p.year ? yearRange(Number(p.year)) : ['0000-00-00', '9999-99-99'];
-    const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, m.name, m.part, a.status, a.reason, a.at, a.updated_at
+    const rows = this.db.exec(`SELECT d.date, d.kind, d.st, d.en, d.splits, m.name, m.part, a.status, a.reason, a.at, a.updated_at
       FROM days d CROSS JOIN members m LEFT JOIN answers a ON a.day_id = d.id AND a.member_id = m.id
       WHERE d.noentry = 0 AND d.date BETWEEN ? AND ? ORDER BY d.date, d.st, m.part, m.name`, from, to);
     const order = Object.fromEntries(this.partIds().map((id, i) => [id, i]));
     const pos = (part) => (part in order ? order[part] : 999);
     rows.sort((a, b) => (a.date + a.st).localeCompare(b.date + b.st) || (pos(a.part) - pos(b.part)) || a.name.localeCompare(b.name, 'ja'));
     const lines = [['日付', '種類', '開始', '終了', '氏名', 'パート', '出欠', '時刻', '欠席理由', '回答日時']];
-    for (const r of rows) lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', jstTime(r.updated_at)]);
+    for (const row of rows) {
+      // 分けて書いた内容があれば、その人のパートの内容と時刻を出す
+      const s = withSplits(row).splits.find((x) => x.parts.includes(row.part));
+      const r = s ? Object.assign({}, row, { kind: s.kind, st: s.st, en: s.en }) : row;
+      lines.push([r.date, r.kind, r.st, r.en, r.name, r.part, STATUS_LABEL[r.status] || '未回答', r.at || '', r.reason || '', jstTime(r.updated_at)]);
+    }
     return { ok: true, csv: lines.map((l) => l.map(csvCell).join(',')).join('\r\n') + '\r\n' };
   }],
 };
 
 // ---------------- 小さな道具 ----------------
-/** 練習日の種類・時刻・メモを確かめてそろえる。誤りがあれば { error } */
-function dayFields(p) {
+/** 練習日の種類・時刻・メモと、分けて書いた内容を確かめてそろえる。誤りがあれば { error } */
+function dayFields(p, partIds) {
   const st = String(p.st || '');
   const en = String(p.en || '');
   if (st && !TIME.test(st)) return { error: '開始時刻の形が正しくありません。' };
@@ -649,7 +655,42 @@ function dayFields(p) {
   const noentry = p.noentry === true || p.noentry === 1 || p.noentry === '1' || p.noentry === 'on' ? 1 : 0;
   const kind = cleanText(p.kind, LIMITS.KIND);
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
-  return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
+  const splits = noentry ? { list: [] } : splitFields(p.splits, partIds || []);
+  if (splits.error) return { error: splits.error };
+  return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry, splits: splits.list };
+}
+/**
+ * 1日の練習の中で、組やパートごとに分けた内容（弦は分奏、Hr はパート練習など）を確かめる。
+ * [{ parts: ['Vn', …], kind, st, en }]。一つのパートは一つの内容にだけ入れられる。画面からは JSON の文字でも届く
+ */
+function splitFields(v, partIds) {
+  let a = v;
+  if (typeof a === 'string') { try { a = a ? JSON.parse(a) : []; } catch (e) { return { error: '分けた内容の形が正しくありません。' }; } }
+  if (a === undefined || a === null) a = [];
+  if (!Array.isArray(a)) return { error: '分けた内容の形が正しくありません。' };
+  if (a.length > LIMITS.SPLITS) return { error: `分けられる内容は${LIMITS.SPLITS}までです。` };
+  const used = new Set();
+  const list = [];
+  for (const s of a) {
+    const parts = [...new Set(Array.isArray(s && s.parts) ? s.parts.map(String) : [])].filter((x) => partIds.includes(x));
+    if (!parts.length) return { error: '分けた内容にパートを選んでください。' };
+    if (parts.some((x) => used.has(x))) return { error: '一つのパートを二つの内容に入れることはできません。' };
+    parts.forEach((x) => used.add(x));
+    const kind = cleanText(s.kind, LIMITS.KIND);
+    if (!kind) return { error: '分けた内容に種類（分奏など）を入れてください。' };
+    const st = String(s.st || '');
+    const en = String(s.en || '');
+    if ((st && !TIME.test(st)) || (en && !TIME.test(en))) return { error: '時刻の形が正しくありません。' };
+    if (st && en && en <= st) return { error: '終了時刻は開始時刻より後にしてください。' };
+    list.push({ parts: partIds.filter((x) => parts.includes(x)), kind, st, en });
+  }
+  return { list };
+}
+/** データベースの行の splits（JSON の文字）を配列にする */
+function withSplits(row) {
+  let splits = [];
+  try { splits = JSON.parse(row.splits || '[]'); } catch (e) { /* 壊れていれば分けていない日として扱う */ }
+  return Object.assign({}, row, { splits: Array.isArray(splits) ? splits : [] });
 }
 const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
 /** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */

@@ -89,6 +89,9 @@
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
+    splits: [], // 練習日のシートで、パートごとに分けて書いた内容 [{ parts, kind, st, en }]
+    splitPick: [], // パートごとの内容を足すために選んでいるパート
+    splitDraft: {}, // パートごとの内容の、入れかけの種類・時刻
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
   };
@@ -299,6 +302,12 @@
   /** 出欠の札の文字。遅刻・早退は時刻も */
   function statusText(a) { return STATUS_LABEL[a.status] + (a.at ? ' ' + a.at : ''); }
   function partsOf(group) { return state.parts.filter((p) => !group || group === 'all' || p.group === group); }
+  /** その日の自分の内容。パートごとに分けた内容に自分のパートがあればその種類と時刻、なければその日のもの */
+  function planOf(d) {
+    const part = state.me && state.me.part;
+    const s = part && (d.splits || []).find((x) => x.parts.includes(part));
+    return s ? Object.assign({}, d, { kind: s.kind, st: s.st, en: s.en }) : d;
+  }
   /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
   function toneOf(d) {
     if (d.noentry) return 'plain';
@@ -610,7 +619,7 @@
   function dayRow(d, isPast) {
     // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
     return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
+      <span class="ag-bar ${toneOf(planOf(d))}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(planOf(d)))}</span></span>
     </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
@@ -636,10 +645,10 @@
       const wd = (g.first + n - 1) % 7;
       // 予定は三つまで出し、それより多ければ二つと残りの数を出す
       const shown = ds.length > 3 ? ds.slice(0, 2) : ds;
-      const label = `${g.m}月${n}日 ${ds.map((d) => (d.kind || '練習') + (withDot(d) ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
+      const label = `${g.m}月${n}日 ${ds.map((d) => (planOf(d).kind || '練習') + (withDot(d) ? ' ' + STATUS_LABEL[statusOf(d.id)] : '')).join('、')}`;
       cells += `<button class="mv-cell${date === state.today ? ' today' : ''}${wd === 0 || wd === 6 ? ' holiday' : ''}${date < state.today ? ' past' : ''}" data-act="cal-date" data-date="${date}" aria-pressed="${state.calDate === date}" aria-label="${esc(label)}">
         <span class="mv-num">${n}</span>
-        ${shown.map((d) => `<span class="mv-ev ${toneOf(d)}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(d.kind || '練習')}</span></span>`).join('')}
+        ${shown.map((d) => `<span class="mv-ev ${toneOf(planOf(d))}">${withDot(d) ? `<span class="dot ${statusOf(d.id)}"></span>` : ''}<span class="mv-name">${esc(planOf(d).kind || '練習')}</span></span>`).join('')}
         ${ds.length > shown.length ? `<span class="mv-more">他${ds.length - shown.length}件</span>` : ''}
       </button>`;
     }
@@ -654,7 +663,8 @@
     const date = state.calDate;
     const ds = state.events.filter((d) => d.date === date);
     const past = date < state.today;
-    const rows = ds.map((d) => {
+    const rows = ds.map((day) => {
+      const d = planOf(day);
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
       const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
@@ -673,7 +683,7 @@
     return page(`
       <div class="title-block">
         <h1 class="title-date">${esc(dateLabel(d.date))}</h1>
-        <p class="title-meta">${esc(metaLabel(d))}</p>
+        <p class="title-meta">${esc(metaLabel(planOf(d)))}</p>
         ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
       </div>
       ${messages()}
@@ -713,7 +723,7 @@
       <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p></div>
+          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(planOf(d)))}</p></div>
           <button class="icon close-round" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>
@@ -759,7 +769,7 @@
     const all = shown.length || 1;
     const showReasons = state.rosterReasons;
     const order = { attend: 0, late: 1, early: 2, absent: 3, none: 4 }; // 出席の人を先に並べる
-    const sections = groupParts.map((pid) => {
+    const partSection = (pid) => {
       const ms = shown.filter((m) => m.part === pid);
       if (!ms.length) return '';
       const c = countOf(ms);
@@ -772,6 +782,17 @@
           ${sorted.map((m) => `<div class="person"><div class="person-row"><span>${esc(m.name)}</span><span class="pill ${m.status}">${esc(statusText(m))}</span></div>
             ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
         </section>`;
+    };
+    // パートごとに内容を分けた日は、同じ内容のパートをまとめ、内容の見出しの下に並べる
+    const splits = r.day.splits || [];
+    const groups = splits.length
+      ? [...splits.map((sp) => ({ plan: sp, parts: groupParts.filter((pid) => sp.parts.includes(pid)) })),
+        { plan: r.day, parts: groupParts.filter((pid) => !splits.some((sp) => sp.parts.includes(pid))) }]
+      : [{ plan: null, parts: groupParts }];
+    const sections = groups.map((g) => {
+      const inner = g.parts.map(partSection).join('');
+      if (!inner || !g.plan) return inner;
+      return `<h2 class="plan-label"><span class="ag-bar ${toneOf(g.plan)}"></span>${esc(metaLabel(g.plan) || '練習')}</h2>${inner}`;
     }).join('');
     const groupLabel = { all: '全体', strings: '弦', winds: '管打' }[state.rosterGroup];
     const part = t.late + t.early;
@@ -920,7 +941,7 @@
       ${state.daySheet ? daySheet() : ''}`;
   }
   function adminDayRow(d) {
-    return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
+    return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), ...(d.splits || []).map((sp) => sp.kind + ' ' + sp.parts.join(' ')), d.note].filter(Boolean).join(' ・ '))}</small></div>
           <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
@@ -933,10 +954,12 @@
     const body = edit ? `<form data-form="day" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
           ${dayFields(e)}
+          ${splitEditor()}
           <button class="cta full" type="submit">保存する</button>
         </form>` : `${pickCalendar()}
         <form data-form="days" class="form-grid">
           ${dayFields(state.draft)}
+          ${splitEditor()}
           <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
         </form>`;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-sheet"></div>
@@ -961,6 +984,37 @@
       <label class="field">終了<input class="input" type="time" name="en" data-value="${esc(v.en || '')}"></label>
       <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>
       <label class="switch full"><input type="checkbox" name="noentry"${v.noentry && v.noentry !== '0' ? ' checked' : ''}><span>出欠をとらない</span>${tip('出欠をとらない予定', '授業や祝日など、カレンダーに載せるだけの予定にします。')}</label>`;
+  }
+  /** 練習日のシートで選べるパート（管理用パスワードで入ったときはホームを読まないので、管理の中身から） */
+  function sheetParts() { return (state.admin && state.admin.parts) || state.parts; }
+  /** 1日の練習の中で、パートごとに内容（分奏・パート練習など）を分けて書く欄 */
+  function splitEditor() {
+    const used = new Set(state.splits.flatMap((sp) => sp.parts));
+    const free = sheetParts().filter((p) => !used.has(p.id));
+    const pick = state.splitPick;
+    const rows = state.splits.map((sp, i) => `<div class="list-row"><span class="ag-bar ${toneOf(sp)}"></span><div class="main"><b>${esc(sp.kind)}</b><small>${esc([sp.parts.join(' '), timeLabel(sp)].filter(Boolean).join('　'))}</small></div>
+        <div class="actions tight"><button type="button" class="ghost icon danger" data-act="split-del" data-i="${i}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('');
+    const groupButton = (g) => {
+      const ids = free.filter((p) => p.group === g).map((p) => p.id);
+      if (!ids.length) return '';
+      return `<button type="button" class="pick-pill" data-act="split-group" data-g="${g}" aria-pressed="${ids.every((id) => pick.includes(id))}">${GROUP_LABEL[g]}</button>`;
+    };
+    const sd = state.splitDraft;
+    return `<div class="split full">
+        <div class="label-row"><span class="split-title">パートごとの内容</span>${tip('パートごとの内容', '選んだパートの人には、この日の種類と時刻の代わりにこちらを出します。')}</div>
+        ${rows ? `<div class="card split-list">${rows}</div>` : ''}
+        ${free.length ? `<div class="split-add">
+          <div class="pill-row">${Object.keys(GROUP_LABEL).map(groupButton).join('')}</div>
+          <div class="pill-row">${free.map((p) => `<button type="button" class="pick-pill" data-act="split-part" data-p="${esc(p.id)}" aria-pressed="${pick.includes(p.id)}">${esc(p.id)}</button>`).join('')}</div>
+          <div class="form-grid">
+            <label class="field full">種類<input class="input" name="skind" list="kinds" value="${esc(sd.kind || '')}" maxlength="20"></label>
+            <label class="field">開始<input class="input" type="time" name="sst" data-value="${esc(sd.st || '')}"></label>
+            <label class="field">終了<input class="input" type="time" name="sen" data-value="${esc(sd.en || '')}"></label>
+            <button type="button" class="ghost full" data-act="split-add"${pick.length ? '' : ' disabled'}>${pick.length ? `${pick.join(' ')} に足す` : 'パートを選ぶ'}</button>
+          </div>
+        </div>` : ''}
+        <input type="hidden" name="splits" value="${esc(JSON.stringify(state.splits))}">
+      </div>`;
   }
   /** 練習日をまとめて足すときの、日付を何日でも選べるカレンダー */
   function pickCalendar() {
@@ -989,6 +1043,14 @@
   function keepDraft() {
     const f = app.querySelector('form[data-form="days"]');
     if (f) state.draft = Object.fromEntries(new FormData(f));
+    const e = app.querySelector('form[data-form="day"]');
+    if (e && state.editDay) {
+      const v = Object.fromEntries(new FormData(e));
+      state.editDay = Object.assign({}, state.editDay, v, { noentry: v.noentry ? 1 : 0 });
+    }
+    // パートごとの内容の、入れかけの種類・時刻
+    const form = f || e;
+    if (form && form.elements.skind) state.splitDraft = { kind: form.elements.skind.value, st: form.elements.sst.value, en: form.elements.sen.value };
   }
   function togglePicked(dates, on) {
     const set = new Set(state.picked);
@@ -1251,14 +1313,51 @@
 
     // 管理
     'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.tempPin = null; state.editDay = null; state.daySheet = ''; render(); },
-    'add-day': () => { state.editDay = null; openSheet('add'); },
-    'edit-day': (el) => { state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null; if (state.editDay) openSheet('edit'); },
+    'add-day': () => { state.editDay = null; state.splits = []; state.splitPick = []; state.splitDraft = {}; openSheet('add'); },
+    'edit-day': (el) => {
+      state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null;
+      if (!state.editDay) return;
+      state.splits = (state.editDay.splits || []).map((sp) => Object.assign({}, sp));
+      state.splitPick = [];
+      state.splitDraft = {};
+      openSheet('edit');
+    },
+    'split-part': (el) => {
+      keepDraft();
+      const id = el.dataset.p;
+      state.splitPick = state.splitPick.includes(id) ? state.splitPick.filter((x) => x !== id) : [...state.splitPick, id];
+      render();
+    },
+    'split-group': (el) => {
+      keepDraft();
+      const used = new Set(state.splits.flatMap((sp) => sp.parts));
+      const ids = sheetParts().filter((p) => p.group === el.dataset.g && !used.has(p.id)).map((p) => p.id);
+      const all = ids.every((id) => state.splitPick.includes(id));
+      state.splitPick = all ? state.splitPick.filter((x) => !ids.includes(x)) : [...new Set([...state.splitPick, ...ids])];
+      render();
+    },
+    'split-add': () => {
+      keepDraft();
+      const sd = state.splitDraft;
+      if (!sd.kind || !sd.kind.trim()) { state.error = 'パートごとの内容に種類（分奏など）を入れてください。'; render(); return; }
+      if (sd.st && sd.en && sd.en <= sd.st) { state.error = '終了時刻は開始時刻より後にしてください。'; render(); return; }
+      const order = sheetParts().map((p) => p.id);
+      state.splits = [...state.splits, { parts: order.filter((id) => state.splitPick.includes(id)), kind: sd.kind.trim(), st: sd.st || '', en: sd.en || '' }];
+      state.splitPick = [];
+      state.splitDraft = {};
+      state.error = '';
+      render();
+    },
+    'split-del': (el) => { keepDraft(); state.splits = state.splits.filter((x, i) => i !== Number(el.dataset.i)); render(); },
     'close-sheet': () => { keepDraft(); closeSheet(); },
     'copy-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d) return;
       state.editDay = null;
       state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
+      state.splits = (d.splits || []).map((sp) => Object.assign({}, sp));
+      state.splitPick = [];
+      state.splitDraft = {};
       state.picked = [];
       openSheet('add');
     },

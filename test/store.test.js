@@ -635,3 +635,27 @@ test('CSV の回答日時は日本時間で出す', async () => {
   const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
   assert.match(csv, /記録の人,Va,出席,,,2026-10-15 12:00:00/);
 });
+
+test('1日の練習の中で、パートごとに内容を分けて書ける', async () => {
+  const t = await ready();
+  const splits = [{ parts: ['Vn', 'Va', 'Vc', 'Cb'], kind: '分奏', st: '13:00', en: '15:00' }, { parts: ['Hr'], kind: 'パート練習', st: '15:00', en: '17:00' }];
+  const r = await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', st: '13:00', en: '17:00', splits: JSON.stringify(splits) }, t.adminToken);
+  assert.equal(r.ok, true, r.message);
+  const day = r.days.find((d) => d.id === t.dayId);
+  assert.deepEqual(day.splits, splits);
+  // 同じパートを二つの内容に入れることはできない
+  const twice = await t.call('saveDay', { id: t.dayId, date: '2026-10-17', kind: '個人練習', splits: [{ parts: ['Vn'], kind: '分奏' }, { parts: ['Vn'], kind: 'パート練習' }] }, t.adminToken);
+  assert.equal(twice.ok, false);
+  // 種類のない内容、ないパートだけの内容は受けない
+  assert.equal((await t.call('saveDay', { id: t.dayId, date: '2026-10-17', splits: [{ parts: ['Vn'], kind: '' }] }, t.adminToken)).ok, false);
+  assert.equal((await t.call('saveDay', { id: t.dayId, date: '2026-10-17', splits: [{ parts: ['Xx'], kind: '分奏' }] }, t.adminToken)).ok, false);
+  // 一覧と CSV にも、その人のパートの内容が出る
+  const va = await join(t, '青葉 花子', 'Va');
+  await join(t, '片平 三子', 'Fl');
+  assert.equal((await t.call('answer', { dayId: t.dayId, status: 'attend' }, va)).ok, true);
+  const roster = await t.call('roster', { dayId: t.dayId }, va);
+  assert.deepEqual(roster.day.splits, splits);
+  const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
+  assert.match(csv, /2026-10-17,分奏,13:00,15:00,青葉花子,Va,出席/);
+  assert.match(csv, /2026-10-17,個人練習,13:00,17:00,片平三子,Fl,未回答/);
+});
