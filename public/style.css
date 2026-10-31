@@ -499,3 +499,5 @@ body.sheet-open { overflow: hidden; }
 .member-row { flex-wrap: wrap; }
 .member-row .actions { flex-basis: 100%; display: flex; gap: 8px; }
 .member-row .actions .select { flex: 1; min-width: 0; }
+.split-list .list-row.editing { background-color: var(--blue-soft); }
+.split-list .ghost.icon[aria-pressed="true"] { color: var(--blue); }

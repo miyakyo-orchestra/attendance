@@ -94,6 +94,7 @@
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
     splits: [], // 練習日のシートで、パートごとに分けて書いた内容 [{ parts, kind, st, en }]
     splitPick: [], // パートごとの内容を足すために選んでいるパート
+    splitEdit: -1, // 直しているパートごとの内容の番号（-1 は新しく足す）
     splitDraft: {}, // パートごとの内容の、入れかけの種類・時刻
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
@@ -1035,12 +1036,13 @@
   }
   /** 1日の練習の中で、パートごとに内容（分奏・パート練習など）を分けて書く欄 */
   function splitEditor() {
-    const used = new Set(state.splits.flatMap((sp) => sp.parts));
+    const used = new Set(state.splits.filter((sp, i) => i !== state.splitEdit).flatMap((sp) => sp.parts));
     // 選べるのは、まだどの内容にも入っていない、自分が書いてよいパート
     const free = sheetParts().filter((p) => !used.has(p.id) && canEditSplit([p.id]));
     const pick = state.splitPick;
-    const rows = state.splits.map((sp, i) => `<div class="list-row"><span class="ag-bar ${toneOf(sp)}"></span><div class="main"><b>${esc(sp.kind)}</b><small>${esc([sp.parts.join(' '), timeLabel(sp)].filter(Boolean).join('　'))}</small></div>
-        <div class="actions tight">${canEditSplit(sp.parts) ? `<button type="button" class="ghost icon danger" data-act="split-del" data-i="${i}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`).join('');
+    const editing = state.splitEdit >= 0;
+    const rows = state.splits.map((sp, i) => `<div class="list-row${i === state.splitEdit ? ' editing' : ''}"><span class="ag-bar ${toneOf(sp)}"></span><div class="main"><b>${esc(sp.kind)}</b><small>${esc([sp.parts.join(' '), timeLabel(sp)].filter(Boolean).join('　'))}</small></div>
+        <div class="actions tight">${canEditSplit(sp.parts) ? `<button type="button" class="ghost icon" data-act="split-edit" data-i="${i}" aria-pressed="${i === state.splitEdit}" aria-label="直す" title="直す">${ICON.edit}</button><button type="button" class="ghost icon danger" data-act="split-del" data-i="${i}" aria-label="消す" title="消す">${ICON.trash}</button>` : ''}</div></div>`).join('');
     // セクションのボタン。そのセクションのまだ使っていないパートをまとめて選ぶ（管理者は全部、セクションリーダーは自分のセクション）
     const groupButton = (sec) => {
       if (!isAdmin() && (state.me || {}).lead !== sec) return '';
@@ -1059,7 +1061,7 @@
             <label class="field full">種類<input class="input" name="skind" list="kinds" value="${esc(sd.kind || '')}" maxlength="20"></label>
             <label class="field">開始<input class="input" type="time" name="sst" data-value="${esc(sd.st || '')}"></label>
             <label class="field">終了<input class="input" type="time" name="sen" data-value="${esc(sd.en || '')}"></label>
-            <button type="button" class="ghost full" data-act="split-add"${pick.length ? '' : ' disabled'}>${pick.length ? `${pick.join(' ')} に足す` : 'パートを選ぶ'}</button>
+            <button type="button" class="ghost full" data-act="split-add"${pick.length ? '' : ' disabled'}>${!pick.length ? 'パートを選ぶ' : editing ? `${pick.join(' ')} を直す` : `${pick.join(' ')} に足す`}</button>
           </div>
         </div>` : ''}
         <input type="hidden" name="splits" value="${esc(JSON.stringify(state.splits))}">
@@ -1364,12 +1366,13 @@
 
     // 管理
     'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.tempPin = null; state.editDay = null; state.daySheet = ''; render(); },
-    'add-day': () => { state.editDay = null; state.splits = []; state.splitPick = []; state.splitDraft = {}; openSheet('add'); },
+    'add-day': () => { state.editDay = null; state.splits = []; state.splitPick = []; state.splitEdit = -1; state.splitDraft = {}; openSheet('add'); },
     'edit-day': (el) => {
       state.editDay = state.admin.days.find((d) => d.id === el.dataset.id) || null;
       if (!state.editDay) return;
       state.splits = (state.editDay.splits || []).map((sp) => Object.assign({}, sp));
       state.splitPick = [];
+      state.splitEdit = -1;
       state.splitDraft = {};
       openSheet('edit');
     },
@@ -1381,7 +1384,7 @@
     },
     'split-group': (el) => {
       keepDraft();
-      const used = new Set(state.splits.flatMap((sp) => sp.parts));
+      const used = new Set(state.splits.filter((sp, i) => i !== state.splitEdit).flatMap((sp) => sp.parts));
       const ids = sectionParts(el.dataset.g).filter((id) => !used.has(id) && canEditSplit([id]));
       const all = ids.every((id) => state.splitPick.includes(id));
       state.splitPick = all ? state.splitPick.filter((x) => !ids.includes(x)) : [...new Set([...state.splitPick, ...ids])];
@@ -1393,13 +1396,27 @@
       if (!sd.kind || !sd.kind.trim()) { state.error = 'パートごとの内容に種類（分奏など）を入れてください。'; render(); return; }
       if (sd.st && sd.en && sd.en <= sd.st) { state.error = '終了時刻は開始時刻より後にしてください。'; render(); return; }
       const order = sheetParts().map((p) => p.id);
-      state.splits = [...state.splits, { parts: order.filter((id) => state.splitPick.includes(id)), kind: sd.kind.trim(), st: sd.st || '', en: sd.en || '' }];
+      const sp = { parts: order.filter((id) => state.splitPick.includes(id)), kind: sd.kind.trim(), st: sd.st || '', en: sd.en || '' };
+      // 直しているときはその場所に入れ替え、そうでなければ最後に足す
+      state.splits = state.splitEdit >= 0 ? state.splits.map((x, i) => (i === state.splitEdit ? sp : x)) : [...state.splits, sp];
+      state.splitEdit = -1;
       state.splitPick = [];
       state.splitDraft = {};
       state.error = '';
       render();
     },
-    'split-del': (el) => { keepDraft(); state.splits = state.splits.filter((x, i) => i !== Number(el.dataset.i)); render(); },
+    'split-edit': (el) => {
+      keepDraft();
+      const i = Number(el.dataset.i);
+      // もう一度押すと直すのをやめる
+      if (state.splitEdit === i) { state.splitEdit = -1; state.splitPick = []; state.splitDraft = {}; render(); return; }
+      const sp = state.splits[i];
+      state.splitEdit = i;
+      state.splitPick = sp.parts.slice();
+      state.splitDraft = { kind: sp.kind, st: sp.st, en: sp.en };
+      render();
+    },
+    'split-del': (el) => { keepDraft(); state.splitEdit = -1; state.splitPick = []; state.splits = state.splits.filter((x, i) => i !== Number(el.dataset.i)); render(); },
     'close-sheet': () => { keepDraft(); closeSheet(); },
     'copy-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
@@ -1408,6 +1425,7 @@
       state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
       state.splits = (d.splits || []).map((sp) => Object.assign({}, sp));
       state.splitPick = [];
+      state.splitEdit = -1;
       state.splitDraft = {};
       state.picked = [];
       openSheet('add');
