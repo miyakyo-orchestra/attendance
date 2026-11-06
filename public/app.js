@@ -769,9 +769,9 @@
   }
   /** 選んだ練習日の人数・帯・絞り込みと、パートごとの一覧 */
   function rosterBody(r) {
-    // 団員には全体・自分のパート（Vn など）・自分のセクション（弦・木管・金管。打楽器はなし）。
-    // 管理用パスワードで入ったときは全体と三つのセクション
-    const filters = [['all', '全体']];
+    // 団員には自分のパート（Vn など）・自分のセクション（弦・木管・金管。打楽器はなし）・全体の順に出す。
+    // 管理用パスワードで入ったときは三つのセクションと全体
+    const filters = [];
     if (isMember()) {
       if (state.parts.some((p) => p.id === state.me.part)) filters.push(['mine', state.me.part]);
       const sec = sectionOf(state.me.part);
@@ -779,6 +779,7 @@
     } else {
       Object.keys(SECTION_LABEL).forEach((k) => filters.push([k, SECTION_LABEL[k]]));
     }
+    filters.push(['all', '全体']);
     if (!filters.some(([k]) => k === state.rosterGroup)) state.rosterGroup = 'all';
     const groupParts = partsOf(state.rosterGroup).map((p) => p.id);
     const shown = r.members.filter((m) => groupParts.includes(m.part));
