@@ -79,7 +79,7 @@
     roster: null,
     rosterDay: '',
     rosterCache: {}, // 一度読んだ練習日の一覧。日付を押したらまずこれを出し、裏で読み直す
-    rosterGroup: 'all',
+    rosterGroup: 'mine', // はじめは自分のパート。自分のパートがない（管理用パスワードで入った）ときは全体
     rosterReasons: true,
     rosterCal: false,
     rosterMonth: '',
@@ -810,8 +810,8 @@
       Object.keys(SECTION_LABEL).forEach((k) => filters.push([k, SECTION_LABEL[k]]));
     }
     filters.push(['all', '全体']);
-    if (!filters.some(([k]) => k === state.rosterGroup)) state.rosterGroup = 'all';
-    const groupParts = partsOf(state.rosterGroup).map((p) => p.id);
+    const group = filters.some(([k]) => k === state.rosterGroup) ? state.rosterGroup : 'all';
+    const groupParts = partsOf(group).map((p) => p.id);
     const shown = r.members.filter((m) => groupParts.includes(m.part));
     const t = countOf(shown);
     const all = shown.length || 1;
@@ -831,7 +831,7 @@
             ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
         </section>`;
     }).join('');
-    const groupLabel = Object.fromEntries(filters)[state.rosterGroup];
+    const groupLabel = Object.fromEntries(filters)[group];
     const part = t.late + t.early;
     return `<section class="card pad">
           <div class="sum-head"><h1>${esc(dateLabel(r.day.date))}</h1><span>${groupLabel} ${shown.length}人</span></div>
@@ -841,7 +841,7 @@
         </section>
         <div class="filter-row">
           <div class="seg" role="group" aria-label="絞り込み">
-            ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
+            ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${group === k}">${l}</button>`).join('')}
           </div>
           ${r.canReadReasons ? `<button class="link" data-act="roster-reasons" aria-pressed="${showReasons}">${showReasons ? '理由を隠す' : '理由を見る'}</button>` : ''}
         </div>
