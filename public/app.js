@@ -87,6 +87,7 @@
     admin: null,
     adminTab: 'days', // 管理画面のタブ
     editDay: null,
+    nudge: null, // 未回答の合奏を知らせるシートに並べる練習日の id。開いていなければ null
     daySheet: '', // 開いている練習日のシート。add（足す）か edit（直す）
     answerSheet: '', // ホームで開いている、遅刻・早退・欠席を答えるシートの練習日
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
@@ -248,7 +249,7 @@
   }, true);
   window.addEventListener('scroll', closeTip, { passive: true });
   window.addEventListener('resize', closeTip);
-  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; closeTip(); if (state.daySheet) { keepDraft(); closeSheet(); } if (state.answerSheet) { state.answerSheet = ''; render(); } });
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; closeTip(); if (state.daySheet) { keepDraft(); closeSheet(); } if (state.answerSheet) { state.answerSheet = ''; render(); } else if (state.nudge) { state.nudge = null; render(); } });
 
   // ---------------- 小さな道具 ----------------
   /** CSV をファイルとして保存させる。先頭の印（BOM）があると、Excel でも文字化けしない */
@@ -573,6 +574,7 @@
 
   // ---------------- 練習日（ホーム） ----------------
   function viewHome() {
+    maybeNudge();
     const list = state.homeView === 'list';
     const body = list ? dayList() : monthView() + agenda(); // 先に描くと、カレンダーの選ぶ日が決まる
     // カレンダーの下の予定が見えるよう、月の見出しと前後の月・今日のボタンは上の帯に置く。
@@ -586,7 +588,7 @@
     return page(`
       ${messages()}
       ${body}
-      ${state.answerSheet ? answerSheet() : ''}
+      ${state.answerSheet ? answerSheet() : state.nudge ? nudgeSheet() : ''}
     `, { left, right: nav + toggle, cls: 'home-top' });
   }
 
@@ -677,6 +679,34 @@
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
       <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
+  }
+
+  // ---------------- 未回答の合奏を知らせる ----------------
+  // アプリを開いて最初にホームを出したとき、これからの合奏に未回答があれば、下からシートで知らせる。
+  // 開くたびに一度だけ。まとめて答える仕組みは置かず、一日ずつ答えてもらう
+  let nudged = false;
+  function maybeNudge() {
+    if (nudged || !isMember() || !state.today) return;
+    nudged = true;
+    const ids = state.days.filter((d) => toneOf(d) === 'tutti' && !isOver(d) && statusOf(d.id) === 'none').map((d) => d.id);
+    if (ids.length) { state.nudge = ids; sheetEnter = true; }
+  }
+  /** 未回答の合奏のシート。答えた行も閉じるまでは残し、答えた様子を見せる */
+  function nudgeSheet() {
+    const ds = state.nudge.map((id) => state.days.find((d) => d.id === id)).filter(Boolean);
+    if (!ds.length) { state.nudge = null; return ''; }
+    const left = ds.filter((d) => statusOf(d.id) === 'none').length;
+    const enter = sheetEnter;
+    sheetEnter = false;
+    return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-nudge"></div>
+      <section class="sheet nudge-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="未回答の合奏">
+        <span class="grabber" aria-hidden="true"></span>
+        <div class="sheet-head">
+          <div><h2>未回答の合奏</h2><p class="title-meta">${left ? `あと${left}件` : 'すべて回答しました'}</p></div>
+          <button class="icon close-round" data-act="close-nudge" aria-label="閉じる">${ICON.close}</button>
+        </div>
+        <div class="sheet-body"><div class="card">${ds.map((d) => dayRow(d, false)).join('')}</div></div>
+      </section>`;
   }
 
   // ---------------- 出欠の入力 ----------------
@@ -1177,6 +1207,7 @@
     state.me = r.me;
     state.rosterCache = {};
     state.flash = '';
+    nudged = false; // 入り直したら、未回答の合奏をまた知らせる
     await loadHome();
     if (isMember() && PASSKEY && !r.hasPasskey) state.view = 'offer';
     else await openStart();
@@ -1195,7 +1226,7 @@
     'logout': () => run(async () => {
       await api('logout');
       setToken('');
-      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, rosterCache: {}, admin: null, flash: '' });
+      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, rosterCache: {}, admin: null, flash: '', nudge: null });
     }),
 
     // 画面の行き来
@@ -1215,6 +1246,7 @@
       state.flash = '';
       state.error = '';
       if (!isMember()) { state.rosterDay = el.dataset.id; return run(openRoster); }
+      state.nudge = null;
       state.view = 'entry';
       render();
       window.scrollTo(0, 0);
@@ -1225,6 +1257,7 @@
     // 札を押すと、待たずに出席（または未回答）にしてから裏で送る。失敗したら元に戻す
     'open-answer': (el) => { state.answerSheet = el.dataset.id; state.error = ''; state.flash = ''; sheetEnter = true; render(); },
     'close-answer': () => { state.answerSheet = ''; state.error = ''; render(); },
+    'close-nudge': () => { state.nudge = null; render(); },
     'quick-attend': async (el) => {
       const id = el.dataset.id;
       if (quickSending[id]) return; // 送っている途中に押し直しても受けない（2つ送って順番が入れ替わらないように）

@@ -479,7 +479,7 @@ body.sheet-open { overflow: hidden; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sheet.enter, .sheet-back.enter { animation: none; } }
 /* ホームで開く、遅刻・早退・欠席のシート */
-.ans-sheet .sheet-head { align-items: flex-start; padding: 16px 8px 8px 20px; }
-.ans-sheet .sheet-head h2 { margin: 0; font-size: 18px; }
-.ans-sheet .sheet-head .title-meta { margin: 2px 0 0; }
-.ans-sheet .sheet-head .icon { margin-top: -6px; }
+.ans-sheet .sheet-head, .nudge-sheet .sheet-head { align-items: flex-start; padding: 16px 8px 8px 20px; }
+.ans-sheet .sheet-head h2, .nudge-sheet .sheet-head h2 { margin: 0; font-size: 18px; }
+.ans-sheet .sheet-head .title-meta, .nudge-sheet .sheet-head .title-meta { margin: 2px 0 0; }
+.ans-sheet .sheet-head .icon, .nudge-sheet .sheet-head .icon { margin-top: -6px; }
