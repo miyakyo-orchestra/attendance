@@ -298,7 +298,11 @@
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   /** 出欠の札の文字。遅刻・早退は時刻も */
   function statusText(a) { return STATUS_LABEL[a.status] + (a.at ? ' ' + a.at : ''); }
-  function partsOf(group) { return state.parts.filter((p) => !group || group === 'all' || p.group === group); }
+  /** 一覧の絞り込みのパート。mine は自分のパートだけ */
+  function partsOf(group) {
+    if (group === 'mine') return state.parts.filter((p) => state.me && p.id === state.me.part);
+    return state.parts.filter((p) => !group || group === 'all' || p.group === group);
+  }
   /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
   function toneOf(d) {
     if (d.noentry) return 'plain';
@@ -439,17 +443,18 @@
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
    *  center を渡さず left もなければ、左に団の名前を出す（ログインの前） */
-  function top(right, left, center, cls) {
+  function top(right, left, center, cls, sub) {
     const l = left || (center ? '' : '<span class="brand">宮教オケ 出欠</span>');
-    return `<header class="top${cls ? ' ' + cls : ''}"><div class="top-l">${l}</div><div class="top-c">${center || ''}</div><div class="top-r">${right || ''}</div></header>`;
+    return `<header class="top${cls ? ' ' + cls : ''}"><div class="top-l">${l}</div><div class="top-c">${center || ''}</div><div class="top-r">${right || ''}</div>${sub ? `<div class="top-sub">${sub}</div>` : ''}</header>`;
   }
   /** ログインのある画面の外枠（上の帯・中身・下のタブ）。o.title は帯の真ん中の名前、o.back は戻るボタン [data-act, 文字]。
-   *  o.left・o.right は帯の左と右（自分のメニューの手前）に置くもの、o.cls は帯に足す class */
+   *  o.left・o.right は帯の左と右（自分のメニューの手前）に置くもの、o.cls は帯に足す class。
+   *  o.sub は帯の下の段に置くもの（帯と一緒に上に貼りつく） */
   function page(body, o) {
     o = o || {};
     const back = o.back ? `<button class="nav-back" data-act="${o.back[0]}">${ICON.back}<span>${esc(o.back[1])}</span></button>` : '';
     const center = o.title ? `<span class="top-title">${esc(o.title)}</span>` : '';
-    return top((o.right || '') + whoMenu(), o.left || back, center || ' ', o.cls) + `<main>${body}</main>` + tabs();
+    return top((o.right || '') + whoMenu(), o.left || back, center || ' ', o.cls, o.sub) + `<main>${body}</main>` + tabs();
   }
   function whoMenu() {
     if (!state.me) return '';
@@ -735,15 +740,16 @@
       return `<button class="day-chip" data-act="roster-day" data-id="${esc(d.id)}" aria-pressed="${d.id === state.rosterDay}" aria-label="${esc(dateLabel(d.date) + ' ' + metaLabel(d))}"><small>${esc(small)}</small><b>${p.d}</b></button>`;
     }).join('');
     const r = state.roster;
-    return page(`
-      ${messages()}
-      <div class="days-bar">
+    // 日付の並びとカレンダーのボタンは上の帯の下の段に置き、画面を流しても上に残す
+    const bar = `<div class="days-bar">
         <div class="day-chips" role="group" aria-label="練習日">${chips}</div>
         <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選ぶ">${ICON.cal}</button>
-      </div>
+      </div>`;
+    return page(`
+      ${messages()}
       ${state.rosterCal ? rosterCalendar() : ''}
       ${r ? `<div class="roster-body${r.day.id === state.rosterDay ? '' : ' loading'}">${rosterBody(r)}</div>` : ''}
-    `, { title: '一覧' });
+    `, { title: '一覧', sub: bar });
   }
   /** 出欠ごとの人数 */
   function countOf(ms) {
@@ -753,6 +759,10 @@
   }
   /** 選んだ練習日の人数・帯・絞り込みと、パートごとの一覧 */
   function rosterBody(r) {
+    // 団員には全体・弦・管打のあとに自分のパート（Vn など）も出す
+    const filters = [['all', '全体'], ['strings', '弦'], ['winds', '管打']];
+    if (isMember() && state.parts.some((p) => p.id === state.me.part)) filters.push(['mine', state.me.part]);
+    if (!filters.some(([k]) => k === state.rosterGroup)) state.rosterGroup = 'all';
     const groupParts = partsOf(state.rosterGroup).map((p) => p.id);
     const shown = r.members.filter((m) => groupParts.includes(m.part));
     const t = countOf(shown);
@@ -773,7 +783,7 @@
             ${showReasons && m.reason ? `<p class="reason">${esc(m.reason)}</p>` : ''}</div>`).join('')}
         </section>`;
     }).join('');
-    const groupLabel = { all: '全体', strings: '弦', winds: '管打' }[state.rosterGroup];
+    const groupLabel = Object.fromEntries(filters)[state.rosterGroup];
     const part = t.late + t.early;
     return `<section class="card pad">
           <div class="sum-head"><h1>${esc(dateLabel(r.day.date))}</h1><span>${groupLabel} ${shown.length}人</span></div>
@@ -783,7 +793,7 @@
         </section>
         <div class="filter-row">
           <div class="seg" role="group" aria-label="絞り込み">
-            ${[['all', '全体'], ['strings', '弦'], ['winds', '管打']].map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
+            ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${state.rosterGroup === k}">${l}</button>`).join('')}
           </div>
           ${r.canReadReasons ? `<button class="link" data-act="roster-reasons" aria-pressed="${showReasons}">${showReasons ? '理由を隠す' : '理由を見る'}</button>` : ''}
         </div>
@@ -1230,7 +1240,7 @@
     'roster-day': (el) => pickRosterDay(el.dataset.id),
     'roster-group': (el) => { state.rosterGroup = el.dataset.g; render(); },
     'roster-reasons': () => { state.rosterReasons = !state.rosterReasons; render(); },
-    'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); },
+    'roster-cal': () => { state.rosterCal = !state.rosterCal; render(); if (state.rosterCal) window.scrollTo(0, 0); }, // 下へ流していても、開いたカレンダーが見えるように
 
     // 設定のパスキー
     'passkey-create': () => run(async () => {
