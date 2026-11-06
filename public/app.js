@@ -25,6 +25,9 @@
   const ROLE_LABEL = { member: '団員', officer: 'パートリーダー', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
   const GROUP_LABEL = { strings: '弦', winds: '管打' };
+  // 一覧の絞り込みのセクション。弦は管理画面で弦にしたパート、木管・金管は名前で決める（打楽器などはどれにも入らない）
+  const SECTION_LABEL = { strings: '弦', woodwinds: '木管', brass: '金管' };
+  const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
   const KINDS = ['合奏', '個人／パート', '分奏', 'リハーサル', '演奏会', '本番', '授業', '休み']; // 練習日の種類の候補
   const ADMIN_TABS = [['days', '練習日'], ['members', '団員'], ['parts', 'パート'], ['records', '記録']];
 
@@ -298,10 +301,17 @@
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   /** 出欠の札の文字。遅刻・早退は時刻も */
   function statusText(a) { return STATUS_LABEL[a.status] + (a.at ? ' ' + a.at : ''); }
-  /** 一覧の絞り込みのパート。mine は自分のパートだけ */
+  /** 絞り込みのパート。all は全員、mine は自分のパート、strings・woodwinds・brass はそのセクション、winds は管打 */
   function partsOf(group) {
     if (group === 'mine') return state.parts.filter((p) => state.me && p.id === state.me.part);
-    return state.parts.filter((p) => !group || group === 'all' || p.group === group);
+    if (SECTION_LABEL[group]) return state.parts.filter((p) => sectionOf(p.id) === group);
+    return state.parts.filter((p) => !group || group === 'all' || p.group === group); // 登録画面などで使う winds（管打）
+  }
+  /** パートのセクション（弦・木管・金管）。打楽器などどれにも入らなければ空 */
+  function sectionOf(id) {
+    const p = state.parts.find((x) => x.id === id);
+    if (p && p.group === 'strings') return 'strings';
+    return Object.keys(SECTION_PARTS).find((k) => SECTION_PARTS[k].includes(id)) || '';
   }
   /** 予定の色の組。合奏・本番など・それ以外の練習・出欠をとらない予定（plain） */
   function toneOf(d) {
@@ -759,9 +769,16 @@
   }
   /** 選んだ練習日の人数・帯・絞り込みと、パートごとの一覧 */
   function rosterBody(r) {
-    // 団員には全体・弦・管打のあとに自分のパート（Vn など）も出す
-    const filters = [['all', '全体'], ['strings', '弦'], ['winds', '管打']];
-    if (isMember() && state.parts.some((p) => p.id === state.me.part)) filters.push(['mine', state.me.part]);
+    // 団員には全体・自分のパート（Vn など）・自分のセクション（弦・木管・金管。打楽器はなし）。
+    // 管理用パスワードで入ったときは全体と三つのセクション
+    const filters = [['all', '全体']];
+    if (isMember()) {
+      if (state.parts.some((p) => p.id === state.me.part)) filters.push(['mine', state.me.part]);
+      const sec = sectionOf(state.me.part);
+      if (sec) filters.push([sec, SECTION_LABEL[sec]]);
+    } else {
+      Object.keys(SECTION_LABEL).forEach((k) => filters.push([k, SECTION_LABEL[k]]));
+    }
     if (!filters.some(([k]) => k === state.rosterGroup)) state.rosterGroup = 'all';
     const groupParts = partsOf(state.rosterGroup).map((p) => p.id);
     const shown = r.members.filter((m) => groupParts.includes(m.part));
