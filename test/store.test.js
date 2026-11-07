@@ -636,7 +636,7 @@ test('CSV の回答日時は日本時間で出す', async () => {
   assert.match(csv, /記録の人,Va,出席,,,2026-10-15 12:00:00/);
 });
 
-test('お知らせは全員が読め、開くと未読が減る。書けるのはパートリーダーと管理者、直せるのは本人と管理者', async () => {
+test('連絡は全員が読め、開くと未読が減る。書けるのはパートリーダーと管理者、直せるのは本人と管理者', async () => {
   const t = await ready();
   const a = await join(t, '宮教 太郎', 'Vn');
   const b = await join(t, '宮教 花子', 'Va');
@@ -662,7 +662,7 @@ test('お知らせは全員が読め、開くと未読が減る。書けるの�
   assert.equal((await t.call('notices', {}, a)).notices.length, 0);
 });
 
-test('お知らせはパートを対象にでき、対象外の団員には見えず数えない', async () => {
+test('連絡はパートを対象にでき、対象外の団員には見えず数えない', async () => {
   const t = await ready();
   const vn = await join(t, '宮教 太郎', 'Vn');
   const fl = await join(t, '宮教 花子', 'Fl');

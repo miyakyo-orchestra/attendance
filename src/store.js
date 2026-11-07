@@ -201,13 +201,13 @@ export class Store {
   stamp() { return new Date(this.now()).toISOString(); }
   member(id) { return this.db.exec('SELECT * FROM members WHERE id = ?', id)[0]; }
 
-  /** 未読のお知らせの数（自分が対象のものだけ）。管理用パスワードで入ったとき（団員でない）は 0 */
+  /** 未読の連絡の数（自分が対象のものだけ）。管理用パスワードで入ったとき（団員でない）は 0 */
   unread(who) {
     if (!who.member) return 0;
     return this.listNotices(who).filter((n) => !n.read && n.forMe).length;
   }
   /**
-   * 見られるお知らせの一覧（新しい順）。団員とパートリーダーには、自分のパートが対象のものと自分が書いたものだけを返す。
+   * 見られる連絡の一覧（新しい順）。団員とパートリーダーには、自分のパートが対象のものと自分が書いたものだけを返す。
    * 管理者には全部を返す。read は自分が開いたか、forMe は自分が対象か、mine は直したり消したりできるか
    */
   listNotices(who) {
@@ -504,21 +504,21 @@ const PRIVATE = {
     return { ok: true, day, members, canReadReasons: canRead, parts: this.parts() };
   }],
 
-  // ---------------- お知らせ ----------------
-  /** お知らせの一覧。ログインしていれば誰でも読める */
+  // ---------------- 連絡 ----------------
+  /** 連絡の一覧。ログインしていれば誰でも読める */
   notices: ['any', function (p, who) {
     return { ok: true, notices: this.listNotices(who), unread: this.unread(who), canPost: isOfficer(who.role) };
   }],
 
-  /** お知らせを開いた印を付ける */
+  /** 連絡を開いた印を付ける */
   readNotice: ['member', function (p, who) {
     const id = String(p.id || '');
-    if (!this.listNotices(who).some((n) => n.id === id)) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+    if (!this.listNotices(who).some((n) => n.id === id)) return fail('連絡が見つかりません。', 'NOT_FOUND');
     this.db.exec('INSERT OR IGNORE INTO notice_reads (notice_id, member_id) VALUES (?, ?)', id, who.member.id);
     return { ok: true, unread: this.unread(who) };
   }],
 
-  /** お知らせを書く（id があれば直す）。直せるのは書いた本人と管理者。直しても既読は残す（誤字の直しで全員に出し直さない） */
+  /** 連絡を書く（id があれば直す）。直せるのは書いた本人と管理者。直しても既読は残す（誤字の直しで全員に出し直さない） */
   saveNotice: ['officer', function (p, who) {
     const title = cleanText(String(p.title || '').replace(/\s*\n\s*/g, ' '), LIMITS.NOTICE_TITLE); // 見出しは一行
     const body = cleanText(p.body, LIMITS.NOTICE_BODY); // 本文は改行を残す
@@ -531,7 +531,7 @@ const PRIVATE = {
     let id = String(p.id || '');
     if (id) {
       const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
-      if (!n) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+      if (!n) return fail('連絡が見つかりません。', 'NOT_FOUND');
       if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが直せます。', 'FORBIDDEN');
       this.db.exec('UPDATE notices SET title = ?, body = ?, parts = ?, updated_at = ? WHERE id = ?', title, body, parts, now, id);
     } else {
@@ -546,11 +546,11 @@ const PRIVATE = {
     return { ok: true, id, notices: this.listNotices(who), unread: this.unread(who) };
   }],
 
-  /** お知らせを消す（開いた印も消す）。消せるのは書いた本人と管理者 */
+  /** 連絡を消す（開いた印も消す）。消せるのは書いた本人と管理者 */
   deleteNotice: ['officer', function (p, who) {
     const id = String(p.id || '');
     const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
-    if (!n) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+    if (!n) return fail('連絡が見つかりません。', 'NOT_FOUND');
     if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが消せます。', 'FORBIDDEN');
     this.db.txn(() => {
       this.db.exec('DELETE FROM notice_reads WHERE notice_id = ?', id);
@@ -733,12 +733,12 @@ function dayFields(p) {
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
 }
-/** お知らせを直したり消したりできるか。管理者と、書いた本人（パートリーダーのまま）だけ */
+/** 連絡を直したり消したりできるか。管理者と、書いた本人（パートリーダーのまま）だけ */
 function canEditNotice(who, n) {
   if (who.role === 'admin') return true;
   return who.role === 'officer' && !!who.member && n.by_id === who.member.id;
 }
-/** お知らせの対象のパート。空の配列なら全員 */
+/** 連絡の対象のパート。空の配列なら全員 */
 function noticeParts(n) {
   try { const v = JSON.parse(n.parts || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
 }

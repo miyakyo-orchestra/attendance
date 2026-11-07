@@ -93,11 +93,11 @@
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
-    unread: 0, // 開いていないお知らせの数（下のタブの鈴の数字）
-    notices: null, // お知らせの一覧（新しい順）。読んでいなければ null
-    canPost: false, // お知らせを書けるか（パートリーダーと管理者）
-    noticeId: '', // 開いているお知らせ
-    noticeSheet: '', // お知らせを書くシート。add（書く）か edit（直す）
+    unread: 0, // 開いていない連絡の数（下のタブの鈴の数字）
+    notices: null, // 連絡の一覧（新しい順）。読んでいなければ null
+    canPost: false, // 連絡を書けるか（パートリーダーと管理者）
+    noticeId: '', // 開いている連絡
+    noticeSheet: '', // 連絡を書くシート。add（書く）か edit（直す）
   };
   function savedHomeView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'; } catch (e) { return 'calendar'; } }
 
@@ -449,16 +449,16 @@
     goHome();
   });
 
-  // 下のタブ。練習日・一覧・お知らせ・管理（パートリーダーと管理者）。お知らせの鈴には、開いていない数を赤い丸で出す
+  // 下のタブ。練習日・一覧・連絡・管理（パートリーダーと管理者）。連絡の鈴には、開いていない数を赤い丸で出す
   function tabs() {
     if (!state.me) return '';
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
     const n = state.unread;
-    items.push(['news', n ? `お知らせ 未読${n}件` : 'お知らせ', 'go-news', ICON.bell + (n ? `<span class="tab-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : '')]);
+    items.push(['news', n ? `連絡 未読${n}件` : '連絡', 'go-news', ICON.bell + (n ? `<span class="tab-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : '')]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    const current = state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 手引きは管理の、お知らせの本文はお知らせのタブの中
+    const current = state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 手引きは管理の、連絡の本文は連絡のタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button class="tab-${v}" data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
@@ -723,8 +723,8 @@
       </section>`;
   }
 
-  // ---------------- お知らせ ----------------
-  // 全員が読め、パートリーダーと管理者が書く。開いたお知らせは既読になり、下のタブの鈴の数字が減る
+  // ---------------- 連絡 ----------------
+  // 全員が読め、パートリーダーと管理者が書く。開いた連絡は既読になり、下のタブの鈴の数字が減る
   function noticeDate(n) { return dateLabel(jstDate(n.created_at)); }
   /** 対象のパートの表示。全員なら空。セクションのパートがそろっていれば、弦・木管・金管とまとめて書く */
   function noticeTo(n) {
@@ -786,12 +786,12 @@
         ${n.body ? `<span class="news-preview">${esc(n.body)}</span>` : ''}</span>
         <span class="sr">${n.read ? '' : '未読'}</span>
       </button>`).join('');
-    const add = state.canPost ? `<button class="icon" data-act="new-notice" aria-label="お知らせを書く">${ICON.plus}</button>` : '';
+    const add = state.canPost ? `<button class="icon" data-act="new-notice" aria-label="連絡を書く">${ICON.plus}</button>` : '';
     return page(`
       ${messages()}
-      ${state.notices === null ? '' : `<div class="card news">${rows || '<div class="empty">お知らせはまだありません</div>'}</div>`}
+      ${state.notices === null ? '' : `<div class="card news">${rows || '<div class="empty">連絡はまだありません</div>'}</div>`}
       ${state.noticeSheet ? noticeSheet() : ''}
-    `, { left: '<h1 class="mv-title">お知らせ</h1>', right: add, cls: 'home-top' });
+    `, { left: '<h1 class="mv-title">連絡</h1>', right: add, cls: 'home-top' });
   }
   function viewNotice() {
     const n = (state.notices || []).find((x) => x.id === state.noticeId);
@@ -806,13 +806,13 @@
       ${messages()}
       ${n.body ? `<div class="card pad notice-body">${esc(n.body)}</div>` : ''}
       ${state.noticeSheet ? noticeSheet() : ''}
-    `, { back: ['go-news', 'お知らせ'], right: tools, cls: 'notice-top' });
+    `, { back: ['go-news', '連絡'], right: tools, cls: 'notice-top' });
   }
-  /** お知らせを書く・直すシート */
+  /** 連絡を書く・直すシート */
   function noticeSheet() {
     const edit = state.noticeSheet === 'edit';
     const n = edit ? (state.notices || []).find((x) => x.id === state.noticeId) || {} : {};
-    const title = edit ? 'お知らせを直す' : 'お知らせを書く';
+    const title = edit ? '連絡を直す' : '連絡を書く';
     const enter = sheetEnter;
     sheetEnter = false;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-notice"></div>
@@ -1374,7 +1374,7 @@
       if (!n || !confirm(`「${n.title}」を消しますか？`)) return;
       const r = await api('deleteNotice', { id: n.id });
       if (!check(r)) return;
-      Object.assign(state, { notices: r.notices, unread: r.unread, view: 'news', flash: 'お知らせを消しました' });
+      Object.assign(state, { notices: r.notices, unread: r.unread, view: 'news', flash: '連絡を消しました' });
     }),
     'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
     'go-manual': () => { state.view = 'manual'; state.flash = ''; state.error = ''; state.tempPin = null; render(); window.scrollTo(0, 0); },
@@ -1580,7 +1580,7 @@
       if (f.scope === 'parts' && !parts.length) { state.error = 'パートを選んでください。'; return; }
       const r = await api('saveNotice', { id: edit ? state.noticeId : '', title: f.title, body: f.body, parts });
       if (!check(r)) return;
-      Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : 'お知らせを掲載しました' });
+      Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : '連絡を掲載しました' });
       if (!edit) state.view = 'news';
     }),
     'day': (f) => run(async () => {
@@ -1648,7 +1648,7 @@
       const submit = form.querySelector('[type="submit"]');
       if (submit) submit.hidden = false;
     }
-    // お知らせの対象。行の頭の丸はその行のパートをまとめて切り替える
+    // 連絡の対象。行の頭の丸はその行のパートをまとめて切り替える
     if (el.closest('.targets')) {
       const box = el.closest('.targets');
       if (el.name === 'section') box.querySelectorAll(`input[name="parts"][data-sec="${el.value}"]`).forEach((x) => { x.checked = el.checked; });
