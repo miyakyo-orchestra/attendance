@@ -32,8 +32,8 @@ export const LIMITS = {
   KIND: 20,
   NOTE: 100,
   REASON: 200,
-  NOTICE_TITLE: 40, // お知らせの見出し
-  NOTICE_BODY: 2000, // お知らせの本文
+  NOTICE_TITLE: 40, // 連絡の見出し
+  NOTICE_BODY: 2000, // 連絡の本文
   PASSPHRASE_MIN: 4,
   PASSPHRASE_MAX: 64,
   PIN: /^\d{4,8}$/,

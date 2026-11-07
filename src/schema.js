@@ -49,10 +49,10 @@ export function initSchema(db) {
   x(`CREATE TABLE IF NOT EXISTS passkeys (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, jwk TEXT NOT NULL,
     alg INTEGER NOT NULL, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`);
   x('CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys (member_id)');
-  // お知らせ（2026-11 から）。by_id は書いた人（管理用パスワードなら空）、by_name は書いたときの氏名（その人を消しても残す）
+  // 連絡（2026-11 から）。by_id は書いた人（管理用パスワードなら空）、by_name は書いたときの氏名（その人を消しても残す）
   x(`CREATE TABLE IF NOT EXISTS notices (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
     by_id TEXT NOT NULL DEFAULT '', by_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
-  // お知らせを開いた印。団員ごと・お知らせごとに1行。未読の数はお知らせの数からこれを引いて数える
+  // 連絡を開いた印。団員ごと・連絡ごとに1行。未読の数は連絡の数からこれを引いて数える
   // 対象のパート（JSON の配列。空なら全員）
   if (!hasColumn('notices', 'parts')) {
     x("ALTER TABLE notices ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");

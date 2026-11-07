@@ -387,10 +387,10 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .tabs button[aria-current="page"] { color: var(--blue); }
 .tabs button[aria-current="page"] svg { stroke-width: 2.4; }
 .tabs button { position: relative; }
-/* 鈴の右上の赤い丸（開いていないお知らせの数）。iPhone のタブのバッジにならう */
+/* 鈴の右上の赤い丸（開いていない連絡の数）。iPhone のタブのバッジにならう */
 .tab-badge { position: absolute; top: 5px; left: calc(50% + 4px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: var(--on-accent); font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 
-/* お知らせ */
+/* 連絡 */
 .news-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px 16px 12px 10px; min-height: 64px; background: none; border: none; text-align: left; --inset: 30px; }
 .news-row + .news-row { background-image: linear-gradient(var(--line), var(--line)); background-size: calc(100% - var(--inset)) 1px; background-position: right top; background-repeat: no-repeat; }
 .news-dot { flex: none; width: 10px; height: 10px; margin-top: 8px; border-radius: 50%; }
