@@ -339,6 +339,8 @@
     if (app.querySelector('.sheet-body')) app.querySelector('.sheet-body').scrollTop = sheetTop; // 日付を選んで描き直しても、シートの中の位置を保つ
     // 時刻の欄は、描いたあとで値を入れる。value に書くと、iPhone の「リセット」がその値に戻すだけで空にならないため
     app.querySelectorAll('input[type="time"][data-value]').forEach((el) => { el.value = el.dataset.value; });
+    // カレンダーの札の名前は、収まらないときだけ端を薄れさせる（合奏のように収まる名前は薄れさせない）
+    app.querySelectorAll('.mv-name').forEach((el) => { el.classList.toggle('cut', el.scrollWidth > el.clientWidth + 1); });
     const sheet = app.querySelector('.sheet');
     document.body.classList.toggle('sheet-open', !!sheet);
     keepFocus(sheet, hadSheet, focused);

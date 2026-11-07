@@ -464,7 +464,8 @@ main.auth h1 { font-size: 26px; }
 .mv-cell.today .mv-num { background: var(--danger); color: var(--on-accent); font-weight: 700; }
 .mv-ev { display: flex; align-items: center; gap: 3px; height: 18px; font-size: 11px; border-radius: 5px; padding: 0 3px; white-space: nowrap; overflow: hidden; font-weight: 500; text-align: left; }
 .mv-ev .dot { flex: none; width: 8px; height: 8px; }
-.mv-name { overflow: hidden; min-width: 0; -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
+.mv-name { overflow: hidden; min-width: 0; }
+.mv-name.cut { -webkit-mask-image: linear-gradient(to right, #000 75%, transparent); mask-image: linear-gradient(to right, #000 75%, transparent); }
 .mv-ev.part { background: var(--part-soft); color: var(--part); }
 .mv-ev.tutti { background: var(--tutti-soft); color: var(--tutti); }
 .mv-ev.stage { background: var(--stage-soft); color: var(--stage); }
