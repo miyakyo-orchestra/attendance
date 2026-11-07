@@ -51,6 +51,8 @@
     person: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="10" r="3.2"/><path d="M5.8 18.6c1.3-2.2 3.5-3.4 6.2-3.4s4.9 1.2 6.2 3.4"/>', 26),
     logout: svg('<path d="M14 4h4.5a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>', 20),
     bell: svg('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>', 22),
+    eye: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>', 22),
+    eyeOff: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>', 22),
     key: svg('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M16.5 6.5l2.5 2.5"/><path d="M14 9l2 2"/>', 20),
   };
 
@@ -958,7 +960,7 @@
           <div class="seg" role="group" aria-label="絞り込み">
             ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${group === k}">${l}</button>`).join('')}
           </div>
-          ${r.canReadReasons ? `<button class="link" data-act="roster-reasons" aria-pressed="${showReasons}">${showReasons ? '理由を隠す' : '理由を見る'}</button>` : ''}
+          ${r.canReadReasons ? `<button class="icon reason-btn" data-act="roster-reasons" aria-pressed="${showReasons}" aria-label="${showReasons ? '欠席理由を隠す' : '欠席理由を見る'}" title="${showReasons ? '欠席理由を隠す' : '欠席理由を見る'}">${showReasons ? ICON.eye : ICON.eyeOff}</button>` : ''}
         </div>
         ${sections || '<div class="empty">団員はまだいません</div>'}`;
   }
