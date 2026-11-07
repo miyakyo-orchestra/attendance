@@ -53,6 +53,10 @@ export function initSchema(db) {
   x(`CREATE TABLE IF NOT EXISTS notices (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
     by_id TEXT NOT NULL DEFAULT '', by_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
   // お知らせを開いた印。団員ごと・お知らせごとに1行。未読の数はお知らせの数からこれを引いて数える
+  // 対象のパート（JSON の配列。空なら全員）
+  if (!hasColumn('notices', 'parts')) {
+    x("ALTER TABLE notices ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");
+  }
   x(`CREATE TABLE IF NOT EXISTS notice_reads (notice_id TEXT NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (notice_id, member_id))`);
   // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
   x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');

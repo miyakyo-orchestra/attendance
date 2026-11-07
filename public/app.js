@@ -721,11 +721,24 @@
   // ---------------- お知らせ ----------------
   // 全員が読め、パートリーダーと管理者が書く。開いたお知らせは既読になり、下のタブの鈴の数字が減る
   function noticeDate(n) { return dateLabel(jstDate(n.created_at)); }
+  /** 対象のパートの表示。全員なら空 */
+  function noticeTo(n) { return n.parts && n.parts.length ? n.parts.join('・') : ''; }
+  /** 対象のパートを選ぶ欄。何も選ばなければ全員。パートを選ぶと全員は外れる（app の change で切り替える） */
+  function noticeTargets(selected) {
+    const sel = selected || [];
+    const chip = (p) => `<label class="chip"><input type="checkbox" name="parts" value="${esc(p.id)}"${sel.includes(p.id) ? ' checked' : ''}><span>${esc(p.id)}</span></label>`;
+    return `<fieldset class="targets"><legend>対象</legend>
+      <div class="parts all"><label class="chip"><input type="checkbox" name="all" value="1"${sel.length ? '' : ' checked'}><span>全員</span></label></div>
+      <div class="parts strings">${partsOf('strings').map(chip).join('')}</div>
+      <div class="parts winds">${partsOf('winds').map(chip).join('')}</div>
+    </fieldset>`;
+  }
   function viewNews() {
     const ns = state.notices || [];
     const rows = ns.map((n) => `<button class="news-row${n.read ? '' : ' unread'}" data-act="open-notice" data-id="${esc(n.id)}">
         <span class="news-dot" aria-hidden="true"></span>
         <span class="main"><span class="news-top"><b>${esc(n.title)}</b><small>${esc(noticeDate(n))}</small></span>
+        ${noticeTo(n) ? `<span class="news-to">${esc(noticeTo(n))}</span>` : ''}
         ${n.body ? `<span class="news-preview">${esc(n.body)}</span>` : ''}</span>
         <span class="sr">${n.read ? '' : '未読'}</span>
       </button>`).join('');
@@ -744,6 +757,7 @@
       <div class="title-block">
         <h1 class="large">${esc(n.title)}</h1>
         <p class="title-meta">${esc(noticeDate(n))}　${esc(n.by)}</p>
+        ${noticeTo(n) ? `<p class="title-meta">対象 ${esc(noticeTo(n))}</p>` : ''}
       </div>
       ${messages()}
       ${n.body ? `<div class="card pad notice-body">${esc(n.body)}</div>` : ''}
@@ -768,6 +782,7 @@
           <form data-form="notice" class="stack">
             <label class="field">見出し<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
             <label class="field">本文<textarea class="textarea" name="body" rows="8" maxlength="2000">${esc(n.body || '')}</textarea></label>
+            ${noticeTargets(n.parts)}
             <button class="cta" type="submit">${edit ? '保存する' : '掲載する'}</button>
           </form>
         </div>
@@ -1536,7 +1551,8 @@
     }),
     'notice': (f) => run(async () => {
       const edit = state.noticeSheet === 'edit';
-      const r = await api('saveNotice', Object.assign({ id: edit ? state.noticeId : '' }, f));
+      const parts = [...app.querySelectorAll('form[data-form="notice"] input[name="parts"]:checked')].map((el) => el.value);
+      const r = await api('saveNotice', { id: edit ? state.noticeId : '', title: f.title, body: f.body, parts });
       if (!check(r)) return;
       Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : 'お知らせを掲載しました' });
       if (!edit) state.view = 'news';
@@ -1605,6 +1621,15 @@
       app.querySelector('.at-box').hidden = el.value !== 'late' && el.value !== 'early';
       const submit = form.querySelector('[type="submit"]');
       if (submit) submit.hidden = false;
+    }
+    // お知らせの対象。全員を選ぶとパートを外し、パートを選ぶと全員を外す。何も選んでいなければ全員に戻す
+    if (el.closest('.targets')) {
+      const box = el.closest('.targets');
+      const all = box.querySelector('input[name="all"]');
+      const parts = [...box.querySelectorAll('input[name="parts"]')];
+      if (el === all) parts.forEach((x) => { x.checked = false; });
+      else if (el.checked) all.checked = false;
+      if (!parts.some((x) => x.checked)) all.checked = true;
     }
     if (el.dataset.change === 'sel-member') {
       const set = new Set(state.selMembers);

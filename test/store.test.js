@@ -661,3 +661,20 @@ test('お知らせは全員が読め、開くと未読が減る。書けるの�
   assert.equal((await t.call('deleteNotice', { id: n.id }, b)).ok, true);
   assert.equal((await t.call('notices', {}, a)).notices.length, 0);
 });
+
+test('お知らせはパートを対象にでき、対象外の団員には見えず数えない', async () => {
+  const t = await ready();
+  const vn = await join(t, '宮教 太郎', 'Vn');
+  const fl = await join(t, '宮教 花子', 'Fl');
+  assert.equal((await t.call('saveNotice', { title: '誤り', parts: ['Xx'] }, t.adminToken)).ok, false);
+  const n = await t.call('saveNotice', { title: '弦だけ', parts: ['Va', 'Vn'] }, t.adminToken);
+  assert.equal(n.ok, true);
+  assert.deepEqual(n.notices[0].parts, ['Vn', 'Va']); // パートの一覧の順
+  await t.call('saveNotice', { title: '全員' }, t.adminToken);
+  assert.equal((await t.call('home', {}, vn)).unread, 2);
+  assert.equal((await t.call('home', {}, fl)).unread, 1);
+  assert.deepEqual((await t.call('notices', {}, fl)).notices.map((x) => x.title), ['全員']);
+  assert.equal((await t.call('readNotice', { id: n.id }, fl)).code, 'NOT_FOUND');
+  // 管理者には全部が見える
+  assert.equal((await t.call('notices', {}, t.adminToken)).notices.length, 2);
+});

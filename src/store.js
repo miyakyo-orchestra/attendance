@@ -201,21 +201,31 @@ export class Store {
   stamp() { return new Date(this.now()).toISOString(); }
   member(id) { return this.db.exec('SELECT * FROM members WHERE id = ?', id)[0]; }
 
-  /** 未読のお知らせの数。管理用パスワードで入ったとき（団員でない）は 0 */
+  /** 未読のお知らせの数（自分が対象のものだけ）。管理用パスワードで入ったとき（団員でない）は 0 */
   unread(who) {
     if (!who.member) return 0;
-    return this.db.exec(`SELECT COUNT(*) AS n FROM notices n
-      WHERE NOT EXISTS (SELECT 1 FROM notice_reads r WHERE r.notice_id = n.id AND r.member_id = ?)`, who.member.id)[0].n;
+    return this.listNotices(who).filter((n) => !n.read && n.forMe).length;
   }
-  /** お知らせの一覧（新しい順）。read は自分が開いたか、mine は自分が直したり消したりできるか */
+  /**
+   * 見られるお知らせの一覧（新しい順）。団員とパートリーダーには、自分のパートが対象のものと自分が書いたものだけを返す。
+   * 管理者には全部を返す。read は自分が開いたか、forMe は自分が対象か、mine は直したり消したりできるか
+   */
   listNotices(who) {
     const me = who.member ? who.member.id : '';
+    const part = who.member ? who.member.part : '';
     const rows = this.db.exec(`SELECT n.*, r.member_id AS r FROM notices n
       LEFT JOIN notice_reads r ON r.notice_id = n.id AND r.member_id = ? ORDER BY n.created_at DESC`, me);
-    return rows.map((n) => ({
-      id: n.id, title: n.title, body: n.body, by: n.by_name, created_at: n.created_at, updated_at: n.updated_at,
-      read: !who.member || !!n.r, mine: canEditNotice(who, n),
-    }));
+    const out = [];
+    for (const n of rows) {
+      const parts = noticeParts(n);
+      const forMe = !!who.member && (!parts.length || parts.includes(part));
+      if (!forMe && who.role !== 'admin' && !(me && n.by_id === me)) continue;
+      out.push({
+        id: n.id, title: n.title, body: n.body, by: n.by_name, parts, created_at: n.created_at, updated_at: n.updated_at,
+        read: !forMe || !!n.r, forMe, mine: canEditNotice(who, n),
+      });
+    }
+    return out;
   }
 
   /** 練習日を1つ足す。f は dayFields で確かめたもの */
@@ -503,7 +513,7 @@ const PRIVATE = {
   /** お知らせを開いた印を付ける */
   readNotice: ['member', function (p, who) {
     const id = String(p.id || '');
-    if (!this.db.exec('SELECT 1 FROM notices WHERE id = ?', id).length) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+    if (!this.listNotices(who).some((n) => n.id === id)) return fail('お知らせが見つかりません。', 'NOT_FOUND');
     this.db.exec('INSERT OR IGNORE INTO notice_reads (notice_id, member_id) VALUES (?, ?)', id, who.member.id);
     return { ok: true, unread: this.unread(who) };
   }],
@@ -513,19 +523,23 @@ const PRIVATE = {
     const title = cleanText(String(p.title || '').replace(/\s*\n\s*/g, ' '), LIMITS.NOTICE_TITLE); // 見出しは一行
     const body = cleanText(p.body, LIMITS.NOTICE_BODY); // 本文は改行を残す
     if (!title) return fail('見出しを入れてください。');
+    // 対象のパート。空なら全員。いまあるパートだけを、パートの一覧の順に置く
+    const want = new Set(Array.isArray(p.parts) ? p.parts.map(String) : []);
+    if ([...want].some((x) => !this.partIds().includes(x))) return fail('パートが見つかりません。');
+    const parts = JSON.stringify(this.partIds().filter((x) => want.has(x)));
     const now = this.stamp();
     let id = String(p.id || '');
     if (id) {
       const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
       if (!n) return fail('お知らせが見つかりません。', 'NOT_FOUND');
       if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが直せます。', 'FORBIDDEN');
-      this.db.exec('UPDATE notices SET title = ?, body = ?, updated_at = ? WHERE id = ?', title, body, now, id);
+      this.db.exec('UPDATE notices SET title = ?, body = ?, parts = ?, updated_at = ? WHERE id = ?', title, body, parts, now, id);
     } else {
       id = randomId(9);
       // 書いた人は自分で読んだことにする
       this.db.txn(() => {
-        this.db.exec('INSERT INTO notices (id, title, body, by_id, by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          id, title, body, who.member ? who.member.id : '', who.member ? who.member.name : '管理者', now, now);
+        this.db.exec('INSERT INTO notices (id, title, body, parts, by_id, by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          id, title, body, parts, who.member ? who.member.id : '', who.member ? who.member.name : '管理者', now, now);
         if (who.member) this.db.exec('INSERT OR IGNORE INTO notice_reads (notice_id, member_id) VALUES (?, ?)', id, who.member.id);
       });
     }
@@ -723,6 +737,10 @@ function dayFields(p) {
 function canEditNotice(who, n) {
   if (who.role === 'admin') return true;
   return who.role === 'officer' && !!who.member && n.by_id === who.member.id;
+}
+/** お知らせの対象のパート。空の配列なら全員 */
+function noticeParts(n) {
+  try { const v = JSON.parse(n.parts || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
 }
 const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
 /** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */
