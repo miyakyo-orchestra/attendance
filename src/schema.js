@@ -49,6 +49,15 @@ export function initSchema(db) {
   x(`CREATE TABLE IF NOT EXISTS passkeys (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, jwk TEXT NOT NULL,
     alg INTEGER NOT NULL, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`);
   x('CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys (member_id)');
+  // お知らせ（2026-11 から）。by_id は書いた人（管理用パスワードなら空）、by_name は書いたときの氏名（その人を消しても残す）
+  x(`CREATE TABLE IF NOT EXISTS notices (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
+    by_id TEXT NOT NULL DEFAULT '', by_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  // お知らせを開いた印。団員ごと・お知らせごとに1行。未読の数はお知らせの数からこれを引いて数える
+  // 対象のパート（JSON の配列。空なら全員）
+  if (!hasColumn('notices', 'parts')) {
+    x("ALTER TABLE notices ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");
+  }
+  x(`CREATE TABLE IF NOT EXISTS notice_reads (notice_id TEXT NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (notice_id, member_id))`);
   // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
   x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
   // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す

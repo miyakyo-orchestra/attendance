@@ -52,6 +52,7 @@
     listview: svg('<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="17.5" r="1.2"/>', 22),
     person: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="10" r="3.2"/><path d="M5.8 18.6c1.3-2.2 3.5-3.4 6.2-3.4s4.9 1.2 6.2 3.4"/>', 26),
     logout: svg('<path d="M14 4h4.5a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>', 20),
+    bell: svg('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>', 22),
     key: svg('<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M16.5 6.5l2.5 2.5"/><path d="M14 9l2 2"/>', 20),
   };
 
@@ -95,6 +96,11 @@
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
+    unread: 0, // 開いていないお知らせの数（下のタブの鈴の数字）
+    notices: null, // お知らせの一覧（新しい順）。読んでいなければ null
+    canPost: false, // お知らせを書けるか（パートリーダーと管理者）
+    noticeId: '', // 開いているお知らせ
+    noticeSheet: '', // お知らせを書くシート。add（書く）か edit（直す）
   };
   function savedHomeView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'calendar'; } catch (e) { return 'calendar'; } }
 
@@ -323,8 +329,8 @@
   }
 
   // ---------------- 画面の組み立て（共通） ----------------
-  const VIEWS = { auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy, manual: viewManual };
-  const TAB_VIEWS = ['home', 'roster', 'admin', 'entry', 'profile', 'privacy', 'manual']; // 下のタブを出す画面
+  const VIEWS = { news: viewNews, notice: viewNotice, auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy, manual: viewManual };
+  const TAB_VIEWS = ['home', 'roster', 'news', 'notice', 'admin', 'entry', 'profile', 'privacy', 'manual']; // 下のタブを出す画面
 
   function render() {
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
@@ -340,6 +346,7 @@
     document.body.classList.toggle('sheet-open', !!sheet);
     keepFocus(sheet, hadSheet, focused);
     if (state.view === 'roster') keepChipScroll();
+    app.querySelectorAll('.targets').forEach(syncTargets); // 丸の一部だけの印（indeterminate）は描いたあとでしか付けられない
     if (state.busy) setBusy(true);
     syncHistory();
   }
@@ -425,7 +432,7 @@
 
   // 出欠の入力・設定・プライバシーポリシーの画面を開いたら、ブラウザの履歴を一つ積む。
   // iPhone で画面の左端から右へなぞる「戻る」や、Android の戻るボタンで練習日に戻れるようにするため
-  const SUB_VIEWS = ['entry', 'profile', 'privacy', 'manual'];
+  const SUB_VIEWS = ['entry', 'profile', 'privacy', 'manual', 'notice'];
   let subPushed = false;
   let ignorePop = false;
   function syncHistory() {
@@ -439,18 +446,21 @@
     subPushed = false;
     if (state.view === 'admin' && state.daySheet) { keepDraft(); closeSheet(); return; }
     if (state.view === 'manual') { backToAdmin(); return; }
+    if (state.view === 'notice') { state.view = 'news'; render(); return; }
     goHome();
   });
 
-  // 下のタブ。練習日・一覧・管理（パートリーダーと管理者）
+  // 下のタブ。練習日・一覧・お知らせ・管理（パートリーダーと管理者）。お知らせの鈴には、開いていない数を赤い丸で出す
   function tabs() {
     if (!state.me) return '';
     const items = [];
     if (isMember()) items.push(['home', '練習日', 'go-home', ICON.list]);
     items.push(['roster', '一覧', 'go-roster', ICON.people]);
+    const n = state.unread;
+    items.push(['news', n ? `お知らせ 未読${n}件` : 'お知らせ', 'go-news', ICON.bell + (n ? `<span class="tab-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : '')]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
-    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
+    const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
+    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button class="tab-${v}" data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
    *  center を渡さず left もなければ、左に団の名前を出す（ログインの前） */
@@ -707,6 +717,123 @@
         </div>
         <div class="sheet-body"><div class="card">${ds.map((d) => dayRow(d, false)).join('')}</div></div>
       </section>`;
+  }
+
+  // ---------------- お知らせ ----------------
+  // 全員が読め、パートリーダーと管理者が書く。開いたお知らせは既読になり、下のタブの鈴の数字が減る
+  function noticeDate(n) { return dateLabel(jstDate(n.created_at)); }
+  /** 対象のパートの表示。全員なら空。セクションのパートがそろっていれば、弦・木管・金管とまとめて書く */
+  function noticeTo(n) {
+    const rest = (n.parts || []).slice();
+    const out = [];
+    for (const k of Object.keys(SECTION_LABEL)) {
+      const ids = partsOf(k).map((p) => p.id);
+      if (ids.length && ids.every((id) => rest.includes(id))) { out.push(SECTION_LABEL[k]); ids.forEach((id) => rest.splice(rest.indexOf(id), 1)); }
+    }
+    return out.concat(rest).join('・');
+  }
+  /**
+   * 対象を選ぶ欄。上の切り替えで「全員」か「パートを選ぶ」。パートを選ぶときは、弦・木管・金管・その他の行に
+   * パートの札を並べ、行の頭の丸を押すとその行のパートをまとめて選ぶ・外す（一部だけなら丸に横線）。
+   * 動きは app の change（syncTargets）で、描き直さずに切り替える。サーバーに送るのはパートだけ
+   */
+  function targetGroups() {
+    const groups = Object.keys(SECTION_LABEL).map((k) => [k, SECTION_LABEL[k], partsOf(k)]);
+    const other = state.parts.filter((p) => !sectionOf(p.id));
+    if (other.length) groups.push(['other', 'その他', other]);
+    return groups.filter((g) => g[2].length);
+  }
+  function noticeTargets(selected) {
+    const sel = selected || [];
+    const some = sel.length > 0;
+    const rows = targetGroups().map(([k, label, ps]) => `<div class="tg-row">
+        <label class="tg-sec"><input type="checkbox" name="section" value="${k}" aria-label="${label}をまとめて選ぶ"><span class="tg-mark" aria-hidden="true">${ICON.check}</span><span>${label}</span></label>
+        <div class="tg-parts">${ps.map((p) => `<label class="tg-chip"><input type="checkbox" name="parts" value="${esc(p.id)}" data-sec="${k}"${sel.includes(p.id) ? ' checked' : ''}><span>${esc(p.id)}</span></label>`).join('')}</div>
+      </div>`).join('');
+    return `<fieldset class="targets"><legend>宛先</legend>
+      <div class="seg tg-scope" role="radiogroup">
+        <label><input type="radio" name="scope" value="all"${some ? '' : ' checked'}><span>全員</span></label>
+        <label><input type="radio" name="scope" value="parts"${some ? ' checked' : ''}><span>パートを選ぶ</span></label>
+      </div>
+      <div class="card tg-card"${some ? '' : ' hidden'}>${rows}</div>
+      <p class="tg-sum" aria-live="polite"></p>
+    </fieldset>`;
+  }
+  /** 対象の欄の見た目をそろえる。行の頭の丸（全部・一部・なし）と、選んだパートのまとめ */
+  function syncTargets(box) {
+    const parts = [...box.querySelectorAll('input[name="parts"]')];
+    for (const sec of box.querySelectorAll('input[name="section"]')) {
+      const ps = parts.filter((x) => x.dataset.sec === sec.value);
+      const n = ps.filter((x) => x.checked).length;
+      sec.checked = n === ps.length;
+      sec.indeterminate = n > 0 && n < ps.length;
+    }
+    const scope = box.querySelector('input[name="scope"]:checked').value;
+    box.querySelector('.tg-card').hidden = scope !== 'parts';
+    const chosen = parts.filter((x) => x.checked).map((x) => x.value);
+    box.querySelector('.tg-sum').textContent = scope === 'parts' && chosen.length ? `${noticeTo({ parts: chosen })}に送る` : '';
+  }
+  function viewNews() {
+    const ns = state.notices || [];
+    const rows = ns.map((n) => `<button class="news-row${n.read ? '' : ' unread'}" data-act="open-notice" data-id="${esc(n.id)}">
+        <span class="news-dot" aria-hidden="true"></span>
+        <span class="main"><span class="news-top"><b>${esc(n.title)}</b><small>${esc(noticeDate(n))}</small></span>
+        ${noticeTo(n) ? `<span class="news-to">${esc(noticeTo(n))}</span>` : ''}
+        ${n.body ? `<span class="news-preview">${esc(n.body)}</span>` : ''}</span>
+        <span class="sr">${n.read ? '' : '未読'}</span>
+      </button>`).join('');
+    const add = state.canPost ? `<button class="icon" data-act="new-notice" aria-label="お知らせを書く">${ICON.plus}</button>` : '';
+    return page(`
+      ${messages()}
+      ${state.notices === null ? '' : `<div class="card news">${rows || '<div class="empty">お知らせはまだありません</div>'}</div>`}
+      ${state.noticeSheet ? noticeSheet() : ''}
+    `, { left: '<h1 class="mv-title">お知らせ</h1>', right: add, cls: 'home-top' });
+  }
+  function viewNotice() {
+    const n = (state.notices || []).find((x) => x.id === state.noticeId);
+    if (!n) { state.view = 'news'; return viewNews(); }
+    const tools = n.mine ? `<button class="icon" data-act="edit-notice" aria-label="直す">${ICON.edit}</button><button class="icon danger" data-act="del-notice" aria-label="消す">${ICON.trash}</button>` : '';
+    return page(`
+      <div class="title-block">
+        <h1 class="large">${esc(n.title)}</h1>
+        <p class="title-meta">${esc(noticeDate(n))}　${esc(n.by)}</p>
+        ${noticeTo(n) ? `<p class="title-meta">宛先 ${esc(noticeTo(n))}</p>` : ''}
+      </div>
+      ${messages()}
+      ${n.body ? `<div class="card pad notice-body">${esc(n.body)}</div>` : ''}
+      ${state.noticeSheet ? noticeSheet() : ''}
+    `, { back: ['go-news', 'お知らせ'], right: tools, cls: 'notice-top' });
+  }
+  /** お知らせを書く・直すシート */
+  function noticeSheet() {
+    const edit = state.noticeSheet === 'edit';
+    const n = edit ? (state.notices || []).find((x) => x.id === state.noticeId) || {} : {};
+    const title = edit ? 'お知らせを直す' : 'お知らせを書く';
+    const enter = sheetEnter;
+    sheetEnter = false;
+    return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-notice"></div>
+      <section class="sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${title}">
+        <span class="grabber" aria-hidden="true"></span>
+        <div class="sheet-head">
+          <h2>${title}</h2>
+          <button class="icon close-round" data-act="close-notice" aria-label="閉じる">${ICON.close}</button>
+        </div>
+        <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}
+          <form data-form="notice" class="stack">
+            ${noticeTargets(n.parts)}
+            <label class="field">見出し<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
+            <label class="field">本文<textarea class="textarea" name="body" rows="6" maxlength="2000">${esc(n.body || '')}</textarea></label>
+            <button class="cta" type="submit">${edit ? '保存する' : '掲載する'}</button>
+          </form>
+        </div>
+      </section>`;
+  }
+  async function loadNotices() {
+    const r = await api('notices');
+    if (!r.ok) { if (r.code !== 'UNAUTHORIZED') state.error = r.message; return; }
+    state.notices = r.notices;
+    state.unread = r.unread;
+    state.canPost = r.canPost;
   }
 
   // ---------------- 出欠の入力 ----------------
@@ -1163,6 +1290,7 @@
     state.days = r.days.filter((d) => !d.noentry);
     state.answers = r.answers;
     state.parts = r.parts;
+    state.unread = r.unread || 0;
     if (!state.month) { const n = nextDay(); state.month = n ? monthOf(n.date) : monthOf(r.today); }
     return true;
   }
@@ -1226,12 +1354,40 @@
     'logout': () => run(async () => {
       await api('logout');
       setToken('');
-      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, rosterCache: {}, admin: null, flash: '', nudge: null });
+      Object.assign(state, { me: null, view: 'auth', authMode: 'login', days: [], answers: {}, roster: null, rosterCache: {}, admin: null, flash: '', nudge: null, notices: null, unread: 0, noticeSheet: '' });
     }),
 
     // 画面の行き来
     'go-home': goHome,
     'go-roster': () => run(openRoster),
+    'go-news': () => {
+      // 前に読んだ一覧があれば先に出し、裏で読み直す
+      state.view = 'news'; state.flash = ''; state.error = ''; state.noticeSheet = '';
+      render(); window.scrollTo(0, 0);
+      loadNotices().then(() => { if (state.view === 'news' && !state.busy && !state.noticeSheet) render(); });
+    },
+    'open-notice': (el) => {
+      const n = (state.notices || []).find((x) => x.id === el.dataset.id);
+      if (!n) return;
+      state.noticeId = n.id; state.view = 'notice'; state.flash = ''; state.error = '';
+      // 開いたら既読にする。数字は待たずに減らし、裏で送る
+      if (!n.read && isMember()) {
+        n.read = true;
+        state.unread = Math.max(0, state.unread - 1);
+        api('readNotice', { id: n.id }).then((r) => { if (r.ok) { state.unread = r.unread; if (!state.busy && !app.querySelector('.sheet')) render(); } });
+      }
+      render(); window.scrollTo(0, 0);
+    },
+    'new-notice': () => { state.noticeSheet = 'add'; state.error = ''; state.flash = ''; sheetEnter = true; render(); },
+    'edit-notice': () => { state.noticeSheet = 'edit'; state.error = ''; state.flash = ''; sheetEnter = true; render(); },
+    'close-notice': () => { state.noticeSheet = ''; state.error = ''; render(); },
+    'del-notice': () => run(async () => {
+      const n = (state.notices || []).find((x) => x.id === state.noticeId);
+      if (!n || !confirm(`「${n.title}」を消しますか？`)) return;
+      const r = await api('deleteNotice', { id: n.id });
+      if (!check(r)) return;
+      Object.assign(state, { notices: r.notices, unread: r.unread, view: 'news', flash: 'お知らせを消しました' });
+    }),
     'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
     'go-manual': () => { state.view = 'manual'; state.flash = ''; state.error = ''; state.tempPin = null; render(); window.scrollTo(0, 0); },
     'manual-back': () => backToAdmin(),
@@ -1433,6 +1589,15 @@
       state.flash = '氏名とパートを保存しました';
       state.view = 'home';
     }),
+    'notice': (f) => run(async () => {
+      const edit = state.noticeSheet === 'edit';
+      const parts = f.scope === 'parts' ? [...app.querySelectorAll('form[data-form="notice"] input[name="parts"]:checked')].map((el) => el.value) : [];
+      if (f.scope === 'parts' && !parts.length) { state.error = 'パートを選んでください。'; return; }
+      const r = await api('saveNotice', { id: edit ? state.noticeId : '', title: f.title, body: f.body, parts });
+      if (!check(r)) return;
+      Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : 'お知らせを掲載しました' });
+      if (!edit) state.view = 'news';
+    }),
     'day': (f) => run(async () => {
       const params = Object.assign({ id: state.editDay ? state.editDay.id : '' }, f);
       let r = await api('saveDay', params);
@@ -1497,6 +1662,12 @@
       app.querySelector('.at-box').hidden = el.value !== 'late' && el.value !== 'early';
       const submit = form.querySelector('[type="submit"]');
       if (submit) submit.hidden = false;
+    }
+    // お知らせの対象。行の頭の丸はその行のパートをまとめて切り替える
+    if (el.closest('.targets')) {
+      const box = el.closest('.targets');
+      if (el.name === 'section') box.querySelectorAll(`input[name="parts"][data-sec="${el.value}"]`).forEach((x) => { x.checked = el.checked; });
+      syncTargets(box);
     }
     if (el.dataset.change === 'sel-member') {
       const set = new Set(state.selMembers);

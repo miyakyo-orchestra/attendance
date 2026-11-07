@@ -201,6 +201,33 @@ export class Store {
   stamp() { return new Date(this.now()).toISOString(); }
   member(id) { return this.db.exec('SELECT * FROM members WHERE id = ?', id)[0]; }
 
+  /** 未読のお知らせの数（自分が対象のものだけ）。管理用パスワードで入ったとき（団員でない）は 0 */
+  unread(who) {
+    if (!who.member) return 0;
+    return this.listNotices(who).filter((n) => !n.read && n.forMe).length;
+  }
+  /**
+   * 見られるお知らせの一覧（新しい順）。団員とパートリーダーには、自分のパートが対象のものと自分が書いたものだけを返す。
+   * 管理者には全部を返す。read は自分が開いたか、forMe は自分が対象か、mine は直したり消したりできるか
+   */
+  listNotices(who) {
+    const me = who.member ? who.member.id : '';
+    const part = who.member ? who.member.part : '';
+    const rows = this.db.exec(`SELECT n.*, r.member_id AS r FROM notices n
+      LEFT JOIN notice_reads r ON r.notice_id = n.id AND r.member_id = ? ORDER BY n.created_at DESC`, me);
+    const out = [];
+    for (const n of rows) {
+      const parts = noticeParts(n);
+      const forMe = !!who.member && (!parts.length || parts.includes(part));
+      if (!forMe && who.role !== 'admin' && !(me && n.by_id === me)) continue;
+      out.push({
+        id: n.id, title: n.title, body: n.body, by: n.by_name, parts, created_at: n.created_at, updated_at: n.updated_at,
+        read: !forMe || !!n.r, forMe, mine: canEditNotice(who, n),
+      });
+    }
+    return out;
+  }
+
   /** 練習日を1つ足す。f は dayFields で確かめたもの */
   addDay(date, f) {
     const id = randomId(9);
@@ -222,7 +249,7 @@ export class Store {
     if (admins && this.adminCount() - admins < 1 && who.member) return fail('最後の管理者は消せません。', 'LAST_ADMIN');
     this.db.txn(() => {
       for (const id of ids) {
-        for (const table of ['answers', 'sessions', 'passkeys']) this.db.exec(`DELETE FROM ${table} WHERE member_id = ?`, id);
+        for (const table of ['answers', 'sessions', 'passkeys', 'notice_reads']) this.db.exec(`DELETE FROM ${table} WHERE member_id = ?`, id);
         this.db.exec('DELETE FROM members WHERE id = ?', id);
       }
     });
@@ -347,7 +374,7 @@ const PRIVATE = {
       : [];
     const answers = {};
     for (const a of mine) answers[a.day_id] = { status: a.status, reason: a.reason, at: a.at };
-    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: this.parts() };
+    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: this.parts(), unread: this.unread(who) };
   }],
 
   logout: ['any', function (p, who) {
@@ -475,6 +502,61 @@ const PRIVATE = {
       return out;
     });
     return { ok: true, day, members, canReadReasons: canRead, parts: this.parts() };
+  }],
+
+  // ---------------- お知らせ ----------------
+  /** お知らせの一覧。ログインしていれば誰でも読める */
+  notices: ['any', function (p, who) {
+    return { ok: true, notices: this.listNotices(who), unread: this.unread(who), canPost: isOfficer(who.role) };
+  }],
+
+  /** お知らせを開いた印を付ける */
+  readNotice: ['member', function (p, who) {
+    const id = String(p.id || '');
+    if (!this.listNotices(who).some((n) => n.id === id)) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+    this.db.exec('INSERT OR IGNORE INTO notice_reads (notice_id, member_id) VALUES (?, ?)', id, who.member.id);
+    return { ok: true, unread: this.unread(who) };
+  }],
+
+  /** お知らせを書く（id があれば直す）。直せるのは書いた本人と管理者。直しても既読は残す（誤字の直しで全員に出し直さない） */
+  saveNotice: ['officer', function (p, who) {
+    const title = cleanText(String(p.title || '').replace(/\s*\n\s*/g, ' '), LIMITS.NOTICE_TITLE); // 見出しは一行
+    const body = cleanText(p.body, LIMITS.NOTICE_BODY); // 本文は改行を残す
+    if (!title) return fail('見出しを入れてください。');
+    // 対象のパート。空なら全員。いまあるパートだけを、パートの一覧の順に置く
+    const want = new Set(Array.isArray(p.parts) ? p.parts.map(String) : []);
+    if ([...want].some((x) => !this.partIds().includes(x))) return fail('パートが見つかりません。');
+    const parts = JSON.stringify(this.partIds().filter((x) => want.has(x)));
+    const now = this.stamp();
+    let id = String(p.id || '');
+    if (id) {
+      const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
+      if (!n) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+      if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが直せます。', 'FORBIDDEN');
+      this.db.exec('UPDATE notices SET title = ?, body = ?, parts = ?, updated_at = ? WHERE id = ?', title, body, parts, now, id);
+    } else {
+      id = randomId(9);
+      // 書いた人は自分で読んだことにする
+      this.db.txn(() => {
+        this.db.exec('INSERT INTO notices (id, title, body, parts, by_id, by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          id, title, body, parts, who.member ? who.member.id : '', who.member ? who.member.name : '管理者', now, now);
+        if (who.member) this.db.exec('INSERT OR IGNORE INTO notice_reads (notice_id, member_id) VALUES (?, ?)', id, who.member.id);
+      });
+    }
+    return { ok: true, id, notices: this.listNotices(who), unread: this.unread(who) };
+  }],
+
+  /** お知らせを消す（開いた印も消す）。消せるのは書いた本人と管理者 */
+  deleteNotice: ['officer', function (p, who) {
+    const id = String(p.id || '');
+    const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
+    if (!n) return fail('お知らせが見つかりません。', 'NOT_FOUND');
+    if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが消せます。', 'FORBIDDEN');
+    this.db.txn(() => {
+      this.db.exec('DELETE FROM notice_reads WHERE notice_id = ?', id);
+      this.db.exec('DELETE FROM notices WHERE id = ?', id);
+    });
+    return { ok: true, notices: this.listNotices(who), unread: this.unread(who) };
   }],
 
   // ---------------- 管理者 ----------------
@@ -650,6 +732,15 @@ function dayFields(p) {
   const kind = cleanText(p.kind, LIMITS.KIND);
   if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
+}
+/** お知らせを直したり消したりできるか。管理者と、書いた本人（パートリーダーのまま）だけ */
+function canEditNotice(who, n) {
+  if (who.role === 'admin') return true;
+  return who.role === 'officer' && !!who.member && n.by_id === who.member.id;
+}
+/** お知らせの対象のパート。空の配列なら全員 */
+function noticeParts(n) {
+  try { const v = JSON.parse(n.parts || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
 }
 const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
 /** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */
