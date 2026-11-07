@@ -5,7 +5,6 @@
  * - auth     … 登録・ログイン・管理用パスワードでのログイン
  * - offer    … 登録やログインのすぐあとに、パスキーを作るよう勧める
  * - home     … 練習日のカレンダーとリスト
- * - entry    … 練習日ごとの出欠の入力
  * - roster   … パート別の出欠（下のタブの「一覧」）
  * - profile  … 設定（自分の氏名とパート、パスキー）
  * - admin    … 管理（練習日・団員・パート・記録）
@@ -48,7 +47,6 @@
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
     close: svg('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 20),
     check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 20),
-    more: svg('<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>', 20),
     listview: svg('<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="17.5" r="1.2"/>', 22),
     person: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="10" r="3.2"/><path d="M5.8 18.6c1.3-2.2 3.5-3.4 6.2-3.4s4.9 1.2 6.2 3.4"/>', 26),
     logout: svg('<path d="M14 4h4.5a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>', 20),
@@ -76,7 +74,6 @@
     flash: '',
     error: '',
     busy: false,
-    entryId: '',
     roster: null,
     rosterDay: '',
     rosterCache: {}, // 一度読んだ練習日の一覧。日付を押したらまずこれを出し、裏で読み直す
@@ -90,7 +87,7 @@
     editDay: null,
     nudge: null, // 未回答の合奏を知らせるシートに並べる練習日の id。開いていなければ null
     daySheet: '', // 開いている練習日のシート。add（足す）か edit（直す）
-    answerSheet: '', // ホームで開いている、遅刻・早退・欠席を答えるシートの練習日
+    answerSheet: '', // ホームで開いている、出欠を答えるシートの練習日
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
@@ -329,8 +326,8 @@
   }
 
   // ---------------- 画面の組み立て（共通） ----------------
-  const VIEWS = { news: viewNews, notice: viewNotice, auth: viewAuth, offer: viewOffer, home: viewHome, entry: viewEntry, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy, manual: viewManual };
-  const TAB_VIEWS = ['home', 'roster', 'news', 'notice', 'admin', 'entry', 'profile', 'privacy', 'manual']; // 下のタブを出す画面
+  const VIEWS = { news: viewNews, notice: viewNotice, auth: viewAuth, offer: viewOffer, home: viewHome, roster: viewRoster, profile: viewProfile, admin: viewAdmin, privacy: viewPrivacy, manual: viewManual };
+  const TAB_VIEWS = ['home', 'roster', 'news', 'notice', 'admin', 'profile', 'privacy', 'manual']; // 下のタブを出す画面
 
   function render() {
     app.classList.toggle('has-tabs', TAB_VIEWS.includes(state.view) && !!state.me);
@@ -432,7 +429,7 @@
 
   // 出欠の入力・設定・プライバシーポリシーの画面を開いたら、ブラウザの履歴を一つ積む。
   // iPhone で画面の左端から右へなぞる「戻る」や、Android の戻るボタンで練習日に戻れるようにするため
-  const SUB_VIEWS = ['entry', 'profile', 'privacy', 'manual', 'notice'];
+  const SUB_VIEWS = ['profile', 'privacy', 'manual', 'notice'];
   let subPushed = false;
   let ignorePop = false;
   function syncHistory() {
@@ -459,7 +456,7 @@
     const n = state.unread;
     items.push(['news', n ? `お知らせ 未読${n}件` : 'お知らせ', 'go-news', ICON.bell + (n ? `<span class="tab-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : '')]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
-    const current = state.view === 'entry' ? 'home' : state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 出欠の入力は練習日の、手引きは管理のタブの中
+    const current = state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 手引きは管理の、お知らせの本文はお知らせのタブの中
     return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button class="tab-${v}" data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
@@ -504,17 +501,24 @@
     const a = state.answers[d.id] || { status: 'none' };
     return `<span class="pill ${a.status}${!isPast && a.status === 'none' ? ' todo' : ''}">${esc(statusText(a))}</span>`;
   }
-  /** 行の右のボタン。チェックは押すだけで出席（もう一度押すと未回答）、隣のボタンは遅刻・早退・欠席のシートを開く。過ぎた日は札だけ */
+  /**
+   * 行の右の、今の答えを一つで示すボタン。未回答は空の丸、出席は塗った丸にチェックで、押すたびに出席と未回答が入れ替わる。
+   * 遅刻・早退・欠席は札で示し、押すとシートで直す。過ぎた日は札だけ
+   */
   function answerButtons(d, isPast) {
-    if (isPast) return myPill(d, true);
+    if (isPast) return `<span class="ans">${myPill(d, true)}</span>`;
     const a = state.answers[d.id] || { status: 'none' };
     const date = dateLabel(d.date);
-    const other = a.status === 'late' || a.status === 'early' || a.status === 'absent'
-      ? `<button class="pill-btn" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'の出欠を直す')}">${myPill(d, false)}</button>`
-      : `<button class="ans-more" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'を遅刻・早退・欠席にする')}">${ICON.more}</button>`;
+    if (a.status === 'late' || a.status === 'early' || a.status === 'absent') {
+      return `<span class="ans"><button class="pill-btn" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'の出欠を直す')}">${myPill(d, false)}</button></span>`;
+    }
     const on = a.status === 'attend';
-    const check = `<button class="ans-check${on ? ' on' : ''}${a.status === 'none' ? ' todo' : ''}" data-act="quick-attend" data-id="${esc(d.id)}" aria-pressed="${on}" aria-label="${esc(date + 'に出席')}">${ICON.check}</button>`;
-    return `<span class="ans">${other}${check}</span>`;
+    return `<span class="ans"><button class="ans-check${on ? ' on' : ''}" data-act="quick-attend" data-id="${esc(d.id)}" aria-pressed="${on}" aria-label="${esc(date + 'に出席')}"><span class="ring">${ICON.check}</span></button></span>`;
+  }
+  /** 行の本体。団員が押すと出欠を選ぶシートが開く。管理用パスワードで入った人はその日の一覧へ。出欠をとらない予定は押せない */
+  function rowOpen(d, body) {
+    if (d.noentry) return `<span class="day-open">${body}</span>`;
+    return `<button class="day-open" data-act="${isMember() ? 'open-answer' : 'open-day'}" data-id="${esc(d.id)}">${body}</button>`;
   }
   /** 姓と名の欄（姓と名はスペースなしでつないで氏名にする） */
   function nameFields(me) {
@@ -633,12 +637,10 @@
     }
     return html;
   }
-  /** 練習日の1行 */
+  /** 練習日の1行。行を押すと出欠のシート、右の丸で出席（ボタンの入れ子を避けて横に並べる） */
   function dayRow(d, isPast) {
-    // 行の本体は出欠の入力を開き、右の札はその場で答える（ボタンの入れ子を避けて横に並べる）
-    return `<div class="day${isPast ? ' past' : ''}"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">
-      <span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>
-    </button>${isMember() ? answerButtons(d, isPast) : ''}</div>`;
+    const body = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="date">${esc(dateLabel(d.date))}</span><span class="meta">${esc(metaLabel(d))}</span></span>`;
+    return `<div class="day${isPast ? ' past' : ''}">${rowOpen(d, body)}${isMember() ? answerButtons(d, isPast) : ''}</div>`;
   }
 
   /** カレンダーで最初に選ぶ日。今日がその月なら今日、なければその月の最初の予定の日 */
@@ -676,7 +678,7 @@
       ${isMember() ? `<div class="legend"><span><span class="dot attend"></span>出席</span><span><span class="dot late"></span>遅刻・早退</span><span><span class="dot absent"></span>欠席</span><span><span class="dot"></span>未回答</span></div>` : ''}
     </div>`;
   }
-  /** カレンダーの下に、選んだ日の予定を時刻の順に並べる。練習を押すと出欠の入力に進む */
+  /** カレンダーの下に、選んだ日の予定を時刻の順に並べる。行を押すと出欠のシート、右の丸で出席 */
   function agenda() {
     const date = state.calDate;
     const ds = state.events.filter((d) => d.date === date);
@@ -685,7 +687,7 @@
       const time = d.st ? `<span class="ag-time"><b>${esc(d.st)}</b>${d.en ? `<span>${esc(d.en)}</span>` : ''}</span>` : '<span class="ag-time"><span>終日</span></span>';
       const main = `<span class="ag-bar ${toneOf(d)}"></span><span class="main"><span class="ag-title">${esc(d.kind || '練習')}</span>${d.note ? `<span class="meta">${esc(d.note)}</span>` : ''}</span>`;
       if (d.noentry) return `<div class="ag-row">${time}${main}</div>`;
-      return `<div class="ag-row has-pill"><button class="day-open" data-act="open-day" data-id="${esc(d.id)}">${time}${main}</button>${isMember() ? answerButtons(d, past) : ''}</div>`;
+      return `<div class="ag-row has-pill">${rowOpen(d, time + main)}${isMember() ? answerButtons(d, past) : ''}</div>`;
     }).join('');
     return `<div class="agenda"><h2 class="month-label">${esc(dateLabel(date))}</h2>
       <div class="card">${rows || '<div class="empty">予定はありません</div>'}</div></div>`;
@@ -837,23 +839,7 @@
   }
 
   // ---------------- 出欠の入力 ----------------
-  function viewEntry() {
-    const d = state.days.find((x) => x.id === state.entryId);
-    if (!d) { state.view = 'home'; return viewHome(); }
-    const a = state.answers[d.id] || { status: '', reason: '' };
-    const past = d.date < state.today;
-    return page(`
-      <div class="title-block">
-        <h1 class="title-date">${esc(dateLabel(d.date))}</h1>
-        <p class="title-meta">${esc(metaLabel(d))}</p>
-        ${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}
-      </div>
-      ${messages()}
-      ${answerForm(d, a, past, ['attend', 'late', 'early', 'absent'])}
-    `, { back: ['go-home', '練習日'] });
-  }
-
-  /** 出欠を答える欄。出欠の入力の画面と、ホームのシートで使う */
+  /** 出欠を答える欄。ホームのシートで使う */
   function answerForm(d, a, past, kinds) {
     const dis = past ? ' disabled' : '';
     return `<form data-form="answer" class="stack">
@@ -874,7 +860,7 @@
         ${past ? '' : `<button class="cta" type="submit"${a.status && a.status !== 'attend' ? '' : ' hidden'}>送信する</button>`}
       </form>`;
   }
-  /** ホームの上に下から開く、遅刻・早退・欠席を答えるシート */
+  /** ホームの上に下から開く、出欠を答えるシート。練習の行を押すと開き、四つから選ぶ。過ぎた日は見るだけ */
   function answerSheet() {
     const d = state.days.find((x) => x.id === state.answerSheet);
     if (!d) return '';
@@ -885,10 +871,10 @@
       <section class="sheet ans-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${esc(dateLabel(d.date))}の出欠">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p></div>
+          <div><h2>${esc(dateLabel(d.date))}</h2><p class="title-meta">${esc(metaLabel(d))}</p>${d.note ? `<p class="title-meta">${esc(d.note)}</p>` : ''}</div>
           <button class="icon close-round" data-act="close-answer" aria-label="閉じる">${ICON.close}</button>
         </div>
-        <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, false, ['late', 'early', 'absent'])}</div>
+        <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${answerForm(d, a, d.date < state.today, ['attend', 'late', 'early', 'absent'])}</div>
       </section>`;
   }
 
@@ -1397,15 +1383,12 @@
       const r = await api('passkeys');
       state.passkeys = r.ok ? r.passkeys : [];
     }),
+    // 管理用パスワードで入った人が練習を押すと、その日の一覧へ（団員は行を押すと出欠のシートが開く）
     'open-day': (el) => {
-      state.entryId = el.dataset.id;
       state.flash = '';
       state.error = '';
-      if (!isMember()) { state.rosterDay = el.dataset.id; return run(openRoster); }
-      state.nudge = null;
-      state.view = 'entry';
-      render();
-      window.scrollTo(0, 0);
+      state.rosterDay = el.dataset.id;
+      return run(openRoster);
     },
 
     // 練習日（ホーム）
@@ -1566,7 +1549,7 @@
     'login': (f) => run(() => signIn('login', f)),
     'admin-login': (f) => run(() => signIn('adminLogin', f)),
     'answer': (f) => run(async () => {
-      const id = state.answerSheet || state.entryId;
+      const id = state.answerSheet;
       const d = state.days.find((x) => x.id === id);
       if (!f.status) { state.error = '出欠を選んでください。'; return; }
       const r = await api('answer', { dayId: id, status: f.status, reason: f.reason || '', at: f.at || '' });
