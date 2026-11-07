@@ -635,3 +635,29 @@ test('CSV の回答日時は日本時間で出す', async () => {
   const csv = (await t.call('exportCsv', {}, t.adminToken)).csv;
   assert.match(csv, /記録の人,Va,出席,,,2026-10-15 12:00:00/);
 });
+
+test('お知らせは全員が読め、開くと未読が減る。書けるのはパートリーダーと管理者、直せるのは本人と管理者', async () => {
+  const t = await ready();
+  const a = await join(t, '宮教 太郎', 'Vn');
+  const b = await join(t, '宮教 花子', 'Va');
+  const ids = Object.fromEntries((await t.call('adminData', {}, t.adminToken)).members.map((m) => [m.name, m.id]));
+  assert.equal((await t.call('setRole', { id: ids['宮教花子'], role: 'officer' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('saveNotice', { title: '書けない', body: '' }, a)).code, 'FORBIDDEN');
+  const n = await t.call('saveNotice', { title: '集合\n時刻', body: '13時に\n集合' }, b);
+  assert.equal(n.ok, true);
+  assert.equal(n.unread, 0); // 書いた人は既読
+  assert.equal((await t.call('home', {}, a)).unread, 1);
+  const list = await t.call('notices', {}, a);
+  assert.deepEqual(list.notices.map((x) => [x.title, x.body, x.by, x.read, x.mine]), [['集合 時刻', '13時に\n集合', '宮教花子', false, false]]);
+  assert.equal(list.canPost, false);
+  assert.equal((await t.call('readNotice', { id: n.id }, a)).unread, 0);
+  assert.equal((await t.call('saveNotice', { id: n.id, title: '直す' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('home', {}, a)).unread, 0); // 直しても既読のまま
+  // ほかのパートリーダーは直せない
+  const c = await join(t, '宮教 次郎', 'Vc');
+  assert.equal((await t.call('setRole', { id: (await t.call('adminData', {}, t.adminToken)).members.find((m) => m.name === '宮教次郎').id, role: 'officer' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('deleteNotice', { id: n.id }, c)).code, 'FORBIDDEN');
+  assert.equal((await t.call('saveNotice', { title: '' }, c)).ok, false);
+  assert.equal((await t.call('deleteNotice', { id: n.id }, b)).ok, true);
+  assert.equal((await t.call('notices', {}, a)).notices.length, 0);
+});
