@@ -346,6 +346,7 @@
     document.body.classList.toggle('sheet-open', !!sheet);
     keepFocus(sheet, hadSheet, focused);
     if (state.view === 'roster') keepChipScroll();
+    app.querySelectorAll('.targets').forEach(syncTargets); // 丸の一部だけの印（indeterminate）は描いたあとでしか付けられない
     if (state.busy) setBusy(true);
     syncHistory();
   }
@@ -721,17 +722,56 @@
   // ---------------- お知らせ ----------------
   // 全員が読め、パートリーダーと管理者が書く。開いたお知らせは既読になり、下のタブの鈴の数字が減る
   function noticeDate(n) { return dateLabel(jstDate(n.created_at)); }
-  /** 対象のパートの表示。全員なら空 */
-  function noticeTo(n) { return n.parts && n.parts.length ? n.parts.join('・') : ''; }
-  /** 対象のパートを選ぶ欄。何も選ばなければ全員。パートを選ぶと全員は外れる（app の change で切り替える） */
+  /** 対象のパートの表示。全員なら空。セクションのパートがそろっていれば、弦・木管・金管とまとめて書く */
+  function noticeTo(n) {
+    const rest = (n.parts || []).slice();
+    const out = [];
+    for (const k of Object.keys(SECTION_LABEL)) {
+      const ids = partsOf(k).map((p) => p.id);
+      if (ids.length && ids.every((id) => rest.includes(id))) { out.push(SECTION_LABEL[k]); ids.forEach((id) => rest.splice(rest.indexOf(id), 1)); }
+    }
+    return out.concat(rest).join('・');
+  }
+  /**
+   * 対象を選ぶ欄。上の切り替えで「全員」か「パートを選ぶ」。パートを選ぶときは、弦・木管・金管・その他の行に
+   * パートの札を並べ、行の頭の丸を押すとその行のパートをまとめて選ぶ・外す（一部だけなら丸に横線）。
+   * 動きは app の change（syncTargets）で、描き直さずに切り替える。サーバーに送るのはパートだけ
+   */
+  function targetGroups() {
+    const groups = Object.keys(SECTION_LABEL).map((k) => [k, SECTION_LABEL[k], partsOf(k)]);
+    const other = state.parts.filter((p) => !sectionOf(p.id));
+    if (other.length) groups.push(['other', 'その他', other]);
+    return groups.filter((g) => g[2].length);
+  }
   function noticeTargets(selected) {
     const sel = selected || [];
-    const chip = (p) => `<label class="chip"><input type="checkbox" name="parts" value="${esc(p.id)}"${sel.includes(p.id) ? ' checked' : ''}><span>${esc(p.id)}</span></label>`;
-    return `<fieldset class="targets"><legend>対象</legend>
-      <div class="parts all"><label class="chip"><input type="checkbox" name="all" value="1"${sel.length ? '' : ' checked'}><span>全員</span></label></div>
-      <div class="parts strings">${partsOf('strings').map(chip).join('')}</div>
-      <div class="parts winds">${partsOf('winds').map(chip).join('')}</div>
+    const some = sel.length > 0;
+    const rows = targetGroups().map(([k, label, ps]) => `<div class="tg-row">
+        <label class="tg-sec"><input type="checkbox" name="section" value="${k}" aria-label="${label}をまとめて選ぶ"><span class="tg-mark" aria-hidden="true">${ICON.check}</span><span>${label}</span></label>
+        <div class="tg-parts">${ps.map((p) => `<label class="tg-chip"><input type="checkbox" name="parts" value="${esc(p.id)}" data-sec="${k}"${sel.includes(p.id) ? ' checked' : ''}><span>${esc(p.id)}</span></label>`).join('')}</div>
+      </div>`).join('');
+    return `<fieldset class="targets"><legend>宛先</legend>
+      <div class="seg tg-scope" role="radiogroup">
+        <label><input type="radio" name="scope" value="all"${some ? '' : ' checked'}><span>全員</span></label>
+        <label><input type="radio" name="scope" value="parts"${some ? ' checked' : ''}><span>パートを選ぶ</span></label>
+      </div>
+      <div class="card tg-card"${some ? '' : ' hidden'}>${rows}</div>
+      <p class="tg-sum" aria-live="polite"></p>
     </fieldset>`;
+  }
+  /** 対象の欄の見た目をそろえる。行の頭の丸（全部・一部・なし）と、選んだパートのまとめ */
+  function syncTargets(box) {
+    const parts = [...box.querySelectorAll('input[name="parts"]')];
+    for (const sec of box.querySelectorAll('input[name="section"]')) {
+      const ps = parts.filter((x) => x.dataset.sec === sec.value);
+      const n = ps.filter((x) => x.checked).length;
+      sec.checked = n === ps.length;
+      sec.indeterminate = n > 0 && n < ps.length;
+    }
+    const scope = box.querySelector('input[name="scope"]:checked').value;
+    box.querySelector('.tg-card').hidden = scope !== 'parts';
+    const chosen = parts.filter((x) => x.checked).map((x) => x.value);
+    box.querySelector('.tg-sum').textContent = scope === 'parts' && chosen.length ? `${noticeTo({ parts: chosen })}に送る` : '';
   }
   function viewNews() {
     const ns = state.notices || [];
@@ -757,7 +797,7 @@
       <div class="title-block">
         <h1 class="large">${esc(n.title)}</h1>
         <p class="title-meta">${esc(noticeDate(n))}　${esc(n.by)}</p>
-        ${noticeTo(n) ? `<p class="title-meta">対象 ${esc(noticeTo(n))}</p>` : ''}
+        ${noticeTo(n) ? `<p class="title-meta">宛先 ${esc(noticeTo(n))}</p>` : ''}
       </div>
       ${messages()}
       ${n.body ? `<div class="card pad notice-body">${esc(n.body)}</div>` : ''}
@@ -780,9 +820,9 @@
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}
           <form data-form="notice" class="stack">
-            <label class="field">見出し<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
-            <label class="field">本文<textarea class="textarea" name="body" rows="8" maxlength="2000">${esc(n.body || '')}</textarea></label>
             ${noticeTargets(n.parts)}
+            <label class="field">見出し<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
+            <label class="field">本文<textarea class="textarea" name="body" rows="6" maxlength="2000">${esc(n.body || '')}</textarea></label>
             <button class="cta" type="submit">${edit ? '保存する' : '掲載する'}</button>
           </form>
         </div>
@@ -1551,7 +1591,8 @@
     }),
     'notice': (f) => run(async () => {
       const edit = state.noticeSheet === 'edit';
-      const parts = [...app.querySelectorAll('form[data-form="notice"] input[name="parts"]:checked')].map((el) => el.value);
+      const parts = f.scope === 'parts' ? [...app.querySelectorAll('form[data-form="notice"] input[name="parts"]:checked')].map((el) => el.value) : [];
+      if (f.scope === 'parts' && !parts.length) { state.error = 'パートを選んでください。'; return; }
       const r = await api('saveNotice', { id: edit ? state.noticeId : '', title: f.title, body: f.body, parts });
       if (!check(r)) return;
       Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : 'お知らせを掲載しました' });
@@ -1622,14 +1663,11 @@
       const submit = form.querySelector('[type="submit"]');
       if (submit) submit.hidden = false;
     }
-    // お知らせの対象。全員を選ぶとパートを外し、パートを選ぶと全員を外す。何も選んでいなければ全員に戻す
+    // お知らせの対象。行の頭の丸はその行のパートをまとめて切り替える
     if (el.closest('.targets')) {
       const box = el.closest('.targets');
-      const all = box.querySelector('input[name="all"]');
-      const parts = [...box.querySelectorAll('input[name="parts"]')];
-      if (el === all) parts.forEach((x) => { x.checked = false; });
-      else if (el.checked) all.checked = false;
-      if (!parts.some((x) => x.checked)) all.checked = true;
+      if (el.name === 'section') box.querySelectorAll(`input[name="parts"][data-sec="${el.value}"]`).forEach((x) => { x.checked = el.checked; });
+      syncTargets(box);
     }
     if (el.dataset.change === 'sel-member') {
       const set = new Set(state.selMembers);
