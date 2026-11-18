@@ -27,7 +27,7 @@
   // 一覧の絞り込みのセクション。弦は管理画面で弦にしたパート、木管・金管は名前で決める（打楽器などはどれにも入らない）
   const SECTION_LABEL = { strings: '弦', woodwinds: '木管', brass: '金管' };
   const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
-  const KINDS = ['合奏', '個人／パート', '分奏', 'リハーサル', '演奏会', '本番', '授業', '休み']; // 練習日の種類の候補
+  const KINDS = ['個人・パート', 'パート練習', '分奏', '合奏']; // 練習日の種類の選択肢。ほかは「その他」で書く
   const ADMIN_TABS = [['days', '練習日'], ['members', '団員'], ['parts', 'パート'], ['records', '記録']];
 
   // アイコン（線で描く。size を渡すと幅と高さも付ける）
@@ -1161,8 +1161,11 @@
   function closeSheet() { state.daySheet = ''; state.editDay = null; state.error = ''; render(); }
   /** 練習日の種類・時刻・メモの欄 */
   function dayFields(v) {
-    return `<label class="field full">種類<input class="input" name="kind" list="kinds" value="${esc(v.kind || '')}" maxlength="20"></label>
-      <datalist id="kinds">${KINDS.map((k) => `<option value="${k}">`).join('')}</datalist>
+    // 選択肢にない種類（本番・授業など）は「その他」にして、下の欄に書く
+    const other = v.kindSel === 'other' || (!!v.kind && !KINDS.includes(v.kind));
+    const sel = other ? 'other' : (v.kind || KINDS[0]);
+    return `<label class="field full">種類<select class="select" name="kindSel">${KINDS.map((k) => `<option value="${k}"${sel === k ? ' selected' : ''}>${k}</option>`).join('')}<option value="other"${other ? ' selected' : ''}>その他</option></select></label>
+      <label class="field full kind-other"${other ? '' : ' hidden'}>その他の種類<input class="input" name="kindOther" value="${esc(other ? v.kind || '' : '')}" maxlength="20"></label>
       <label class="field">開始<input class="input" type="time" name="st" data-value="${esc(v.st || '')}"></label>
       <label class="field">終了<input class="input" type="time" name="en" data-value="${esc(v.en || '')}"></label>
       <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>
@@ -1194,7 +1197,13 @@
   /** 種類・時刻・メモの入れかけを、描き直しても消えないよう取っておく */
   function keepDraft() {
     const f = app.querySelector('form[data-form="days"]');
-    if (f) state.draft = Object.fromEntries(new FormData(f));
+    if (f) state.draft = kindOf(Object.fromEntries(new FormData(f)));
+  }
+  /** 種類の選択（kindSel）と「その他」の欄（kindOther）から、送る種類（kind）を決める */
+  function kindOf(f) {
+    const r = Object.assign({}, f, { kind: f.kindSel === 'other' ? (f.kindOther || '').trim() : f.kindSel });
+    delete r.kindOther;
+    return r;
   }
   function togglePicked(dates, on) {
     const set = new Set(state.picked);
@@ -1719,10 +1728,18 @@
     if (!form) return;
     ev.preventDefault();
     const fn = FORMS[form.dataset.form];
-    if (fn) fn(Object.fromEntries(new FormData(form)));
+    const data = Object.fromEntries(new FormData(form));
+    if (fn) fn('kindSel' in data ? kindOf(data) : data);
   });
   app.addEventListener('change', (ev) => {
     const el = ev.target;
+    // 種類で「その他」を選んだときだけ、種類を書く欄を出す
+    if (el.name === 'kindSel') {
+      const box = el.form.querySelector('.kind-other');
+      box.hidden = el.value !== 'other';
+      if (!box.hidden) box.querySelector('input').focus();
+      return;
+    }
     // 出席は押しただけで送る。遅刻・早退は時刻、欠席は理由の欄を出して送信を待つ
     if (el.name === 'status') {
       const form = el.closest('form');

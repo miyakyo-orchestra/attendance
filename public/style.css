@@ -525,7 +525,7 @@ body.sheet-open { overflow: hidden; }
 .sheet .pick-day { width: 38px; height: 36px; gap: 1px; }
 .sheet .form-grid { gap: 8px 10px; }
 .sheet .field { gap: 3px; font-size: 12px; }
-.sheet .input { height: 40px; }
+.sheet .input, .sheet .select { height: 40px; }
 .sheet .input[type="time"], .sheet .input[type="date"] { line-height: 38px; }
 .sheet .cta { min-height: 46px; }
 .sheet.enter { animation: sheet-up .24s ease-out; }
