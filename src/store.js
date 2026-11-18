@@ -161,6 +161,11 @@ export class Store {
   listDays() {
     return this.db.exec('SELECT id, date, kind, st, en, note, noentry FROM days ORDER BY date, st');
   }
+  /** 練習日を足す下書き。新しく保存したものから */
+  listDrafts() {
+    return this.db.exec('SELECT id, dates, kind, st, en, note, noentry, updated_at FROM day_drafts ORDER BY updated_at DESC')
+      .map((d) => Object.assign({}, d, { dates: JSON.parse(d.dates) }));
+  }
   /** 今のパートの一覧 [{ id, group }] */
   parts() {
     const v = this.kget('parts');
@@ -586,9 +591,9 @@ const PRIVATE = {
   /** 管理画面に出すもの。パートリーダーには練習日だけを返す */
   adminData: ['officer', function (p, who) {
     // パートリーダーには、暗証番号の再設定のために団員の氏名・パート・役割も返す
-    if (who.role !== 'admin') return { ok: true, days: this.listDays(), trash: this.listTrash(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
+    if (who.role !== 'admin') return { ok: true, days: this.listDays(), trash: this.listTrash(), drafts: this.listDrafts(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
     const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
-    return { ok: true, days: this.listDays(), trash: this.listTrash(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
+    return { ok: true, days: this.listDays(), trash: this.listTrash(), drafts: this.listDrafts(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
   }],
 
   saveDay: ['officer', function (p) {
@@ -620,8 +625,41 @@ const PRIVATE = {
     if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
     const f = dayFields(p);
     if (f.error) return fail(f.error);
-    this.db.txn(() => { for (const date of dates) this.addDay(date, f); });
-    return { ok: true, added: dates.length, days: this.listDays() };
+    // 下書きから足したときは、その下書きを消す
+    this.db.txn(() => {
+      for (const date of dates) this.addDay(date, f);
+      if (p.draftId) this.db.exec('DELETE FROM day_drafts WHERE id = ?', String(p.draftId));
+    });
+    return { ok: true, added: dates.length, days: this.listDays(), drafts: this.listDrafts() };
+  }],
+
+  /** 練習日を足すシートの入れかけを、団員に見せずにサーバーに置く。id があればその下書きを上書きする */
+  saveDraft: ['officer', function (p) {
+    const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
+    if (!dates.length) return fail('日付を選んでください。');
+    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に選べるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
+    if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
+    // 入れかけなので、出欠をとらない予定に種類がなくても置ける（足すときに確かめる）
+    const noentry = dayFields({ kind: '-', noentry: p.noentry }).noentry;
+    const f = dayFields(Object.assign({}, p, { noentry: 0 }));
+    if (f.error) return fail(f.error);
+    const at = new Date(this.now()).toISOString();
+    let id = String(p.id || '');
+    if (id && this.db.exec('SELECT 1 FROM day_drafts WHERE id = ?', id).length) {
+      this.db.exec('UPDATE day_drafts SET dates = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ?, updated_at = ? WHERE id = ?',
+        JSON.stringify(dates), f.kind, f.st, f.en, f.note, noentry, at, id);
+    } else {
+      if (this.db.exec('SELECT COUNT(*) AS n FROM day_drafts')[0].n >= LIMITS.DRAFTS) return fail(`下書きは${LIMITS.DRAFTS}件までです。使わない下書きを消してください。`);
+      id = randomId(9);
+      this.db.exec('INSERT INTO day_drafts (id, dates, kind, st, en, note, noentry, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        id, JSON.stringify(dates), f.kind, f.st, f.en, f.note, noentry, at);
+    }
+    return { ok: true, id, drafts: this.listDrafts() };
+  }],
+
+  deleteDraft: ['officer', function (p) {
+    this.db.exec('DELETE FROM day_drafts WHERE id = ?', String(p.id || ''));
+    return { ok: true, drafts: this.listDrafts() };
   }],
 
   /** 練習日を消す。30日のあいだは控えに残し、restoreDay で戻せる */

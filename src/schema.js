@@ -61,6 +61,10 @@ export function initSchema(db) {
   // 消した練習日の控え（2026-11-18 から）。取り消しで戻せるよう、練習日（day）と出欠（answers）を JSON で30日だけ置く
   x(`CREATE TABLE IF NOT EXISTS trash_days (id TEXT PRIMARY KEY, day TEXT NOT NULL, answers TEXT NOT NULL DEFAULT '[]',
     deleted_at INTEGER NOT NULL)`);
+  // 練習日を足すときの下書き（2026-11 から）。団員には見せない。dates は日付の JSON の配列
+  x(`CREATE TABLE IF NOT EXISTS day_drafts (id TEXT PRIMARY KEY, dates TEXT NOT NULL DEFAULT '[]', kind TEXT NOT NULL DEFAULT '',
+    st TEXT NOT NULL DEFAULT '', en TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', noentry INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL)`);
   // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
   x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
   // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す
