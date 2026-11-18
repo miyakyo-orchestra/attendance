@@ -82,7 +82,10 @@ a { color: var(--blue); }
 .menu-head { padding: 8px 12px 6px; font-size: 13px; color: var(--sub); }
 .row-menu > summary { list-style: none; cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; color: var(--blue); margin-right: -10px; }
 .row-menu > summary::-webkit-details-marker { display: none; }
-.row-menu > .menu { position: fixed; top: 0; right: 16px; z-index: 30; }
+/* 行のメニューは中身の幅に合わせ、文字とアイコンの間を一定にする */
+.row-menu > .menu { position: fixed; top: 0; right: 16px; z-index: 30; min-width: 0; width: max-content; }
+.row-menu > .menu button { justify-content: flex-start; gap: 24px; }
+.row-menu > .menu button svg { margin-left: auto; }
 .menu button svg { width: 20px; height: 20px; flex: none; }
 .menu-sep { margin: 4px 0; border: none; border-top: 1px solid var(--line); }
 .menu button:hover { background: var(--muted); }
