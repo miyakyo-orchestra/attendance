@@ -86,6 +86,7 @@
     rosterMonth: '',
     passkeys: null, // 自分のパスキーの一覧（設定の画面）
     admin: null,
+    trashOpen: false, // 消した練習日の一覧を開いているか
     undo: null, // 消した直後の練習日（取り消すボタン用）
     adminTab: 'days', // 管理画面のタブ
     editDay: null,
@@ -1103,11 +1104,11 @@
         </div>
         <div class="adm-body">${ds.length ? `<section class="card">${ds.map((d) => (d.draft ? draftRow(d) : adminDayRow(d))).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
       </div>
-      ${a.trash && a.trash.length ? `<section class="card trash">
-        <div class="part-head"><div class="label-row"><h2>消した練習日</h2>${tip('消した練習日', '消してから30日のあいだは、その日の出欠ごと戻せます。')}</div></div>
+      ${a.trash && a.trash.length ? `<details class="card fold trash"${state.trashOpen ? ' open' : ''}>
+        <summary data-act="toggle-trash"><h2>消した練習日</h2><span class="count">${a.trash.length}</span>${ICON.down}</summary>
         ${a.trash.map((d) => `<div class="list-row"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.answers ? `出欠${d.answers}人` : ''].filter(Boolean).join(' ・ '))}</small></div>
           <div class="actions tight"><button class="ghost" data-act="restore-day" data-id="${esc(d.id)}">戻す</button></div></div>`).join('')}
-      </section>` : ''}
+      </details>` : ''}
       ${state.daySheet ? daySheet() : ''}`;
   }
   function adminDayRow(d) {
@@ -1597,6 +1598,8 @@
         await reloadAll();
       });
     },
+    // 消した練習日の一覧は、はじめは畳んでおく。開け閉めを覚えておき、描き直しても同じ形に保つ
+    'toggle-trash': () => { state.trashOpen = !state.trashOpen; render(); },
     'restore-day': (el) => run(async () => {
       const r = await api('restoreDay', { id: el.dataset.id });
       state.undo = null;

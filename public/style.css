@@ -168,6 +168,9 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .fold > summary h2 { margin: 0; }
 .fold > summary svg { margin-left: auto; color: var(--sub); transition: transform .15s; }
 .fold[open] > summary svg { transform: rotate(180deg); }
+.fold.trash > summary { padding: 6px 16px; min-height: 52px; }
+.fold.trash > summary .count { color: var(--sub); font-size: 15px; }
+.fold.trash[open] > summary { border-bottom: 1px solid var(--line); }
 .fold .inline { margin-top: 16px; }
 .fold .fold-body { margin-top: 16px; }
 
