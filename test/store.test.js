@@ -261,6 +261,32 @@ test('練習日をまとめて足す', async () => {
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
 });
 
+test('練習日を足す下書きは団員に見せず、足したら消える', async () => {
+  const t = await ready();
+  const r = await t.call('saveDraft', { dates: ['2026-11-07', '2026-11-14'], kind: '合奏', st: '13:00', noentry: 'on' }, t.adminToken);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.drafts[0].dates, ['2026-11-07', '2026-11-14']);
+  assert.equal(r.drafts[0].noentry, 1);
+  // 上書き
+  const u = await t.call('saveDraft', { id: r.id, dates: ['2026-11-07'], kind: '分奏' }, t.adminToken);
+  assert.equal(u.drafts.length, 1);
+  assert.equal(u.drafts[0].kind, '分奏');
+  // 種類のない出欠をとらない予定も、下書きなら置ける
+  assert.equal((await t.call('saveDraft', { dates: ['2026-11-08'], noentry: 'on' }, t.adminToken)).ok, true);
+  assert.equal((await t.call('saveDraft', { dates: [] }, t.adminToken)).ok, false);
+  const member = await join(t, '団員', 'Va');
+  assert.equal((await t.call('saveDraft', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
+  assert.ok(!(await t.call('home', {}, member)).days.some((d) => d.date === '2026-11-07'));
+  assert.equal((await t.call('home', {}, member)).drafts, undefined);
+  assert.equal((await t.call('home', {}, t.adminToken)).drafts.length, 2);
+  const a = await t.call('saveDays', { dates: ['2026-11-07'], kind: '分奏', draftId: r.id }, t.adminToken);
+  assert.equal(a.drafts.length, 1);
+  const left = a.drafts[0].id;
+  assert.equal((await t.call('deleteDraft', { id: left }, t.adminToken)).drafts.length, 0);
+  for (let i = 0; i < 20; i++) await t.call('saveDraft', { dates: ['2026-12-01'] }, t.adminToken);
+  assert.equal((await t.call('saveDraft', { dates: ['2026-12-01'] }, t.adminToken)).ok, false);
+});
+
 test('出欠をとらない予定は、カレンダーに出るが出欠は入れられない', async () => {
   const t = await ready();
   const r = await t.call('saveDays', { dates: ['2026-10-24', '2026-10-25'], kind: '総合型選抜', noentry: 'on' }, t.adminToken);
