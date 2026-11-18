@@ -43,6 +43,7 @@
     copy: svg('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>', 20),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>', 20),
     publish: svg('<path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/>', 20),
+    more: svg('<circle cx="12" cy="12" r="9.5"/><circle cx="7.75" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.25" cy="12" r="1.1" fill="currentColor" stroke="none"/>', 24),
     trash: svg('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/>', 20),
     cal: svg(CALENDAR, 20),
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
@@ -1113,12 +1114,21 @@
   }
   function adminDayRow(d) {
     return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
+          ${rowMenu(d, [['copy-day', '複製', ICON.copy], ['edit-day', '編集', ICON.edit]], 'delete-day')}</div>`;
   }
-  /** 下書きの行。右のボタンで公開・修正・削除を1件ずつ */
+  /** 下書きの行。右の三点メニューで公開・編集・削除を1件ずつ */
   function draftRow(d) {
     return `<div class="list-row draft${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)} draft"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small><span class="badge">下書き</span> ${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d) || '種類なし', d.note].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost icon" data-act="publish-draft" data-id="${esc(d.id)}" aria-label="公開する" title="公開する">${ICON.publish}</button><button class="ghost icon" data-act="open-draft" data-id="${esc(d.id)}" aria-label="下書きを修正" title="修正">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-draft" data-id="${esc(d.id)}" aria-label="下書きを消す" title="消す">${ICON.trash}</button></div></div>`;
+          ${rowMenu(d, [['publish-draft', '公開', ICON.publish], ['open-draft', '編集', ICON.edit]], 'delete-draft')}</div>`;
+  }
+  /** 行の右の三点ボタンと、押すと開くメニュー。削除は区切って赤で最後に置く */
+  function rowMenu(d, items, del) {
+    const id = esc(d.id);
+    return `<details class="row-menu"><summary aria-label="${esc(dateLabel(d.date))}の操作">${ICON.more}</summary><div class="menu">
+      ${items.map(([act, label, icon]) => `<button data-act="${act}" data-id="${id}">${label}${icon}</button>`).join('')}
+      <hr class="menu-sep">
+      <button class="danger" data-act="${del}" data-id="${id}">削除${ICON.trash}</button>
+    </div></details>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
@@ -1891,9 +1901,23 @@
 
   // メニューの外を押したら閉じる
   document.addEventListener('click', (ev) => {
-    const open = app.querySelector('details.who[open]');
-    if (open && !open.contains(ev.target)) open.open = false;
+    app.querySelectorAll('details.who[open], details.row-menu[open]').forEach((m) => { if (!m.contains(ev.target)) m.open = false; });
   });
+  // 行のメニューはカードの外まで出せるよう画面に固定して置き、下に入らなければ上に開く
+  app.addEventListener('toggle', (ev) => {
+    const d = ev.target;
+    if (!d.classList || !d.classList.contains('row-menu') || !d.open) return;
+    const m = d.querySelector('.menu');
+    const r = d.querySelector('summary').getBoundingClientRect();
+    m.style.right = `${document.documentElement.clientWidth - r.right}px`;
+    m.style.top = `${r.bottom + 4}px`;
+    const h = m.offsetHeight;
+    const bottom = window.innerHeight - 64; // 下のタブの帯にかからないように
+    if (r.bottom + 4 + h > bottom) m.style.top = `${Math.max(8, r.top - 4 - h)}px`;
+  }, true);
+  window.addEventListener('scroll', () => {
+    app.querySelectorAll('details.row-menu[open]').forEach((m) => { m.open = false; });
+  }, { passive: true });
   window.addEventListener('hashchange', () => {
     if (location.hash === '#admin' && state.view === 'auth') { state.authMode = 'admin'; render(); }
   });
