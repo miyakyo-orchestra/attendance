@@ -163,8 +163,7 @@ export class Store {
   }
   /** 練習日を足す下書き。新しく保存したものから */
   listDrafts() {
-    return this.db.exec('SELECT id, dates, kind, st, en, note, noentry, updated_at FROM day_drafts ORDER BY updated_at DESC')
-      .map((d) => Object.assign({}, d, { dates: JSON.parse(d.dates) }));
+    return this.db.exec('SELECT id, date, kind, st, en, note, noentry, updated_at FROM day_drafts ORDER BY date, st');
   }
   /** 今のパートの一覧 [{ id, group }] */
   parts() {
@@ -627,36 +626,57 @@ const PRIVATE = {
     if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
     const f = dayFields(p);
     if (f.error) return fail(f.error);
-    // 下書きから足したときは、その下書きを消す
-    this.db.txn(() => {
-      for (const date of dates) this.addDay(date, f);
-      if (p.draftId) this.db.exec('DELETE FROM day_drafts WHERE id = ?', String(p.draftId));
-    });
-    return { ok: true, added: dates.length, days: this.listDays(), drafts: this.listDrafts() };
+    this.db.txn(() => { for (const date of dates) this.addDay(date, f); });
+    return { ok: true, added: dates.length, days: this.listDays() };
   }],
 
-  /** 練習日を足すシートの入れかけを、団員に見せずにサーバーに置く。id があればその下書きを上書きする */
+  /**
+   * 練習日の下書きを、団員に見せずにサーバーに置く。下書きは1日1件。
+   * id があればその下書きを直し（date）、なければ選んだ日付（dates）ごとに1件ずつ作る
+   */
   saveDraft: ['officer', function (p) {
-    const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
-    if (!dates.length) return fail('日付を選んでください。');
+    const id = String(p.id || '');
+    const dates = id ? [String(p.date || '')] : [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
+    if (!dates.length || !dates[0]) return fail('日付を選んでください。');
     if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に選べるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
     if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
-    // 入れかけなので、出欠をとらない予定に種類がなくても置ける（足すときに確かめる）
+    // 入れかけなので、出欠をとらない予定に種類がなくても置ける（公開するときに確かめる）
     const noentry = dayFields({ kind: '-', noentry: p.noentry }).noentry;
     const f = dayFields(Object.assign({}, p, { noentry: 0 }));
     if (f.error) return fail(f.error);
     const at = new Date(this.now()).toISOString();
-    let id = String(p.id || '');
-    if (id && this.db.exec('SELECT 1 FROM day_drafts WHERE id = ?', id).length) {
-      this.db.exec('UPDATE day_drafts SET dates = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ?, updated_at = ? WHERE id = ?',
-        JSON.stringify(dates), f.kind, f.st, f.en, f.note, noentry, at, id);
-    } else {
-      if (this.db.exec('SELECT COUNT(*) AS n FROM day_drafts')[0].n >= LIMITS.DRAFTS) return fail(`下書きは${LIMITS.DRAFTS}件までです。使わない下書きを消してください。`);
-      id = randomId(9);
-      this.db.exec('INSERT INTO day_drafts (id, dates, kind, st, en, note, noentry, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        id, JSON.stringify(dates), f.kind, f.st, f.en, f.note, noentry, at);
+    if (id) {
+      if (!this.db.exec('SELECT 1 FROM day_drafts WHERE id = ?', id).length) return fail('下書きが見つかりません。', 'NOT_FOUND');
+      this.db.exec('UPDATE day_drafts SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ?, updated_at = ? WHERE id = ?',
+        dates[0], f.kind, f.st, f.en, f.note, noentry, at, id);
+      return { ok: true, drafts: this.listDrafts() };
     }
-    return { ok: true, id, drafts: this.listDrafts() };
+    if (this.db.exec('SELECT COUNT(*) AS n FROM day_drafts')[0].n + dates.length > LIMITS.DRAFTS) return fail(`下書きは${LIMITS.DRAFTS}件までです。使わない下書きを消してください。`);
+    this.db.txn(() => {
+      for (const date of dates) {
+        this.db.exec("INSERT INTO day_drafts (id, dates, date, kind, st, en, note, noentry, updated_at) VALUES (?, '[]', ?, ?, ?, ?, ?, ?, ?)",
+          randomId(9), date, f.kind, f.st, f.en, f.note, noentry, at);
+      }
+    });
+    return { ok: true, added: dates.length, drafts: this.listDrafts() };
+  }],
+
+  /** 下書きを1件、練習日にして公開する（団員に見えるようになる）。送られた内容があればそれで公開する */
+  publishDraft: ['officer', function (p) {
+    const id = String(p.id || '');
+    const d = this.db.exec('SELECT * FROM day_drafts WHERE id = ?', id)[0];
+    if (!d) return fail('下書きが見つかりません。', 'NOT_FOUND');
+    const v = 'date' in p ? p : d;
+    const date = String(v.date || '');
+    if (!isDate(date)) return fail('日付を入れてください。');
+    const f = dayFields(v);
+    if (f.error) return fail(f.error);
+    let dayId = '';
+    this.db.txn(() => {
+      dayId = this.addDay(date, f);
+      this.db.exec('DELETE FROM day_drafts WHERE id = ?', id);
+    });
+    return { ok: true, id: dayId, days: this.listDays(), drafts: this.listDrafts() };
   }],
 
   deleteDraft: ['officer', function (p) {

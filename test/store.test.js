@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/store.js';
 
-function setup(opts) {
-  const sqlite = new DatabaseSync(':memory:');
+function setup(opts, given) {
+  const sqlite = given || new DatabaseSync(':memory:');
   const db = {
     exec: (q, ...b) => {
       const st = sqlite.prepare(q);
@@ -261,30 +261,49 @@ test('練習日をまとめて足す', async () => {
   assert.equal((await t.call('saveDays', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
 });
 
-test('練習日を足す下書きは団員に見せず、足したら消える', async () => {
+test('練習日の下書きは1日1件で、団員に見せず、1件ずつ公開・修正できる', async () => {
   const t = await ready();
-  const r = await t.call('saveDraft', { dates: ['2026-11-07', '2026-11-14'], kind: '合奏', st: '13:00', noentry: 'on' }, t.adminToken);
+  const r = await t.call('saveDraft', { dates: ['2026-11-14', '2026-11-07'], kind: '合奏', st: '13:00', noentry: 'on' }, t.adminToken);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.drafts[0].dates, ['2026-11-07', '2026-11-14']);
+  assert.deepEqual(r.drafts.map((d) => d.date), ['2026-11-07', '2026-11-14']);
   assert.equal(r.drafts[0].noentry, 1);
-  // 上書き
-  const u = await t.call('saveDraft', { id: r.id, dates: ['2026-11-07'], kind: '分奏' }, t.adminToken);
-  assert.equal(u.drafts.length, 1);
-  assert.equal(u.drafts[0].kind, '分奏');
-  // 種類のない出欠をとらない予定も、下書きなら置ける
-  assert.equal((await t.call('saveDraft', { dates: ['2026-11-08'], noentry: 'on' }, t.adminToken)).ok, true);
+  const [a, b] = r.drafts;
+  // 1件だけ修正する
+  const u = await t.call('saveDraft', { id: a.id, date: '2026-11-08', kind: '分奏' }, t.adminToken);
+  assert.deepEqual(u.drafts.map((d) => [d.date, d.kind]), [['2026-11-08', '分奏'], ['2026-11-14', '合奏']]);
+  // 種類のない出欠をとらない予定も、下書きなら置ける。公開するときは確かめる
+  const n = await t.call('saveDraft', { dates: ['2026-11-09'], noentry: 'on' }, t.adminToken);
+  const blank = n.drafts.find((d) => d.date === '2026-11-09');
+  assert.equal((await t.call('publishDraft', { id: blank.id }, t.adminToken)).ok, false);
   assert.equal((await t.call('saveDraft', { dates: [] }, t.adminToken)).ok, false);
   const member = await join(t, '団員', 'Va');
   assert.equal((await t.call('saveDraft', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
-  assert.ok(!(await t.call('home', {}, member)).days.some((d) => d.date === '2026-11-07'));
+  assert.equal((await t.call('publishDraft', { id: a.id }, member)).code, 'FORBIDDEN');
   assert.equal((await t.call('home', {}, member)).drafts, undefined);
-  assert.equal((await t.call('home', {}, t.adminToken)).drafts.length, 2);
-  const a = await t.call('saveDays', { dates: ['2026-11-07'], kind: '分奏', draftId: r.id }, t.adminToken);
-  assert.equal(a.drafts.length, 1);
-  const left = a.drafts[0].id;
-  assert.equal((await t.call('deleteDraft', { id: left }, t.adminToken)).drafts.length, 0);
-  for (let i = 0; i < 20; i++) await t.call('saveDraft', { dates: ['2026-12-01'] }, t.adminToken);
-  assert.equal((await t.call('saveDraft', { dates: ['2026-12-01'] }, t.adminToken)).ok, false);
+  assert.equal((await t.call('home', {}, t.adminToken)).drafts.length, 3);
+  // 1件だけ公開すると、その日だけ練習日になり、その下書きは消える
+  const pub = await t.call('publishDraft', { id: a.id }, t.adminToken);
+  assert.equal(pub.ok, true);
+  assert.ok(pub.days.some((d) => d.date === '2026-11-08' && d.kind === '分奏'));
+  assert.ok(!pub.days.some((d) => d.date === '2026-11-14'));
+  assert.equal(pub.drafts.length, 2);
+  assert.ok((await t.call('home', {}, member)).days.some((d) => d.date === '2026-11-08'));
+  assert.equal((await t.call('deleteDraft', { id: b.id }, t.adminToken)).drafts.length, 1);
+});
+
+test('前の、いくつもの日付をまとめた下書きは、消さずに日付ごとに分ける', async () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE day_drafts (id TEXT PRIMARY KEY, dates TEXT NOT NULL DEFAULT '[]', kind TEXT NOT NULL DEFAULT '',
+    st TEXT NOT NULL DEFAULT '', en TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', noentry INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)`);
+  db.prepare('INSERT INTO day_drafts (id, dates, kind, st, en, note, noentry, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('old1', JSON.stringify(['2026-12-05', '2026-12-12', '2026-12-19']), '合奏', '13:00', '17:00', 'メモ', 0, '2026-11-18T06:00:00Z');
+  db.prepare('INSERT INTO day_drafts (id, dates, kind, st, en, note, noentry, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('old2', JSON.stringify(['2026-12-02']), '分奏', '', '', '', 0, '2026-11-18T06:00:00Z');
+  const t = setup({}, db);
+  const rows = db.prepare('SELECT date, kind, st, en, note FROM day_drafts ORDER BY date').all();
+  assert.deepEqual(rows.map((r) => r.date), ['2026-12-02', '2026-12-05', '2026-12-12', '2026-12-19']);
+  assert.ok(rows.slice(1).every((r) => r.kind === '合奏' && r.st === '13:00' && r.en === '17:00' && r.note === 'メモ'));
+  assert.ok(t);
 });
 
 test('出欠をとらない予定は、カレンダーに出るが出欠は入れられない', async () => {

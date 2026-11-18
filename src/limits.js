@@ -45,7 +45,7 @@ export const LIMITS = {
   TRASH_DAYS: 30, // 消した練習日を、取り消しで戻せる日数
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
-  DRAFTS: 20, // 練習日を足す下書きの数の上限
+  DRAFTS: 300, // 練習日の下書きの数の上限（1日1件）
   PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tu など）
   PART_COUNT: 30,
   PASSKEYS: 10, // 一人が作れるパスキーの数

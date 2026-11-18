@@ -42,6 +42,7 @@
     down: svg('<path d="M6 9l6 6 6-6"/>', 18),
     copy: svg('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>', 20),
     edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>', 20),
+    publish: svg('<path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/>', 20),
     trash: svg('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/>', 20),
     cal: svg(CALENDAR, 20),
     plus: svg('<path d="M12 5v14"/><path d="M5 12h14"/>', 20),
@@ -94,7 +95,7 @@
     pickMonth: '', // 練習日をまとめて足すカレンダーの月
     picked: [], // 選んだ日付
     draft: {}, // まとめて足す欄に入れかけの種類・時刻・メモ
-    draftId: '', // サーバーに置いた下書きから開いているときの、その下書きの id
+    draftId: '', // 下書きのシートで開いている下書きの id
     selMembers: [], // 管理画面でまとめて消すために選んだ団員
     tempPin: null, // 暗証番号を再設定したときの仮の番号 { name, pin }。管理の画面を離れたら消す
     unread: 0, // 開いていない連絡の数（下のタブの鈴の数字）
@@ -1084,20 +1085,23 @@
     const ym = state.adminMonth || monthOf(state.today);
     const [y, m] = ym.split('-').map(Number);
     const up = a.days.filter((d) => d.date >= state.today);
-    const ds = a.days.filter((d) => monthOf(d.date) === ym);
+    const days = a.days.filter((d) => monthOf(d.date) === ym);
+    // 下書きも同じ月の一覧に日付の順で混ぜ、点線と「下書き」のカードで見分ける
+    const drafts = (a.drafts || []).filter((d) => monthOf(d.date) === ym).map((d) => Object.assign({ draft: true }, d));
+    const ds = days.concat(drafts).sort((x, y) => (x.date + x.st < y.date + y.st ? -1 : x.date + x.st > y.date + y.st ? 1 : 0));
     const away = ym !== monthOf(state.today);
+    const nd = (a.drafts || []).length;
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日${nd ? ` ・ 下書き${nd}件` : ''}</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
       </section>
-      ${(a.drafts || []).length ? `<section class="card drafts"><div class="part-head"><h2>下書き</h2><span>${a.drafts.length}件</span></div>${a.drafts.map(draftRow).join('')}</section>` : ''}
       <div class="adm-month">
         <div class="adm-month-head">
-          <h2 class="month-label">${y !== parseDate(state.today).y ? y + '年' : ''}${m}月 ${ds.length}件</h2>
+          <h2 class="month-label">${y !== parseDate(state.today).y ? y + '年' : ''}${m}月 ${days.length}件${drafts.length ? ` ・ 下書き${drafts.length}件` : ''}</h2>
           ${away ? '<button class="mv-today" data-act="admin-this-month">今月</button>' : ''}
           <button class="icon" data-act="admin-month" data-n="-1" aria-label="前の月">${ICON.back}</button>
           <button class="icon" data-act="admin-month" data-n="1" aria-label="次の月">${ICON.next}</button>
         </div>
-        <div class="adm-body">${ds.length ? `<section class="card">${ds.map(adminDayRow).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
+        <div class="adm-body">${ds.length ? `<section class="card">${ds.map((d) => (d.draft ? draftRow(d) : adminDayRow(d))).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
       </div>
       ${a.trash && a.trash.length ? `<section class="card trash">
         <div class="part-head"><div class="label-row"><h2>消した練習日</h2>${tip('消した練習日', '消してから30日のあいだは、その日の出欠ごと戻せます。')}</div></div>
@@ -1110,21 +1114,25 @@
     return `<div class="list-row${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></div>
           <div class="actions tight"><button class="ghost icon" data-act="copy-day" data-id="${esc(d.id)}" aria-label="複製" title="複製">${ICON.copy}</button><button class="ghost icon" data-act="edit-day" data-id="${esc(d.id)}" aria-label="直す" title="直す">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-day" data-id="${esc(d.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`;
   }
-  /** 下書きの行。押すと足すシートに読み込む */
+  /** 下書きの行。右のボタンで公開・修正・削除を1件ずつ */
   function draftRow(d) {
-    const ds = d.dates;
-    const range = ds.length ? (ds.length === 1 ? dateLabel(ds[0]) : `${dateLabel(ds[0])}〜${dateLabel(ds[ds.length - 1])}`) : '';
-    return `<div class="list-row"><span class="ag-bar ${toneOf(d)}"></span><button class="main row-btn" data-act="open-draft" data-id="${esc(d.id)}"><b>${esc(d.kind || '種類なし')}</b><small>${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([`${ds.length}日`, range, timeLabel(d), d.note].filter(Boolean).join(' ・ '))}</small></button>
-          <div class="actions tight"><button class="ghost icon danger" data-act="delete-draft" data-id="${esc(d.id)}" aria-label="下書きを消す" title="下書きを消す">${ICON.trash}</button></div></div>`;
+    return `<div class="list-row draft${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)} draft"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small><span class="badge">下書き</span> ${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d) || '種類なし', d.note].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost icon" data-act="publish-draft" data-id="${esc(d.id)}" aria-label="公開する" title="公開する">${ICON.publish}</button><button class="ghost icon" data-act="open-draft" data-id="${esc(d.id)}" aria-label="下書きを修正" title="修正">${ICON.edit}</button><button class="ghost icon danger" data-act="delete-draft" data-id="${esc(d.id)}" aria-label="下書きを消す" title="消す">${ICON.trash}</button></div></div>`;
   }
   /** 練習日を足す・直すシート。一覧の上に重ねて開くので、閉じれば一覧の同じ位置に戻る */
   function daySheet() {
     const e = state.editDay || {};
-    const edit = state.daySheet === 'edit';
-    const title = edit ? '練習日を直す' : state.draftId ? '下書き' : '練習日を足す';
+    const draft = state.daySheet === 'draft';
+    const edit = state.daySheet === 'edit' || draft;
+    const title = draft ? '下書き' : edit ? '練習日を直す' : '練習日を足す';
     const enter = sheetEnter;
     sheetEnter = false;
-    const body = edit ? `<form data-form="day" class="form-grid">
+    const body = draft ? `<form data-form="draft" class="form-grid">
+          <label class="field full">日付<input class="input" type="date" name="date" value="${esc(state.draft.date || '')}" required></label>
+          ${dayFields(state.draft)}
+          <button class="cta full" type="submit">公開する</button>
+          <button class="ghost full" type="button" data-act="update-draft">下書きを保存</button>
+        </form>` : edit ? `<form data-form="day" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
           ${dayFields(e)}
           <button class="cta full" type="submit">保存する</button>
@@ -1132,7 +1140,7 @@
         <form data-form="days" class="form-grid">
           ${dayFields(state.draft)}
           <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
-          <button class="ghost full" type="button" data-act="save-draft"${state.picked.length ? '' : ' disabled'}>${state.draftId ? '下書きを上書き保存' : '下書きに保存'}</button>
+          <button class="ghost full" type="button" data-act="save-draft"${state.picked.length ? '' : ' disabled'}>下書きに保存</button>
         </form>`;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-sheet"></div>
       <section class="sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${title}">
@@ -1147,18 +1155,27 @@
   let sheetEnter = false; // 開いた直後の1回だけ、下から出てくる動きをつける
   const quickSending = {}; // リストのチェックで、送っている途中の練習日
   function openSheet(kind) { state.daySheet = kind; state.error = ''; state.flash = ''; sheetEnter = true; render(); }
-  /** サーバーに置いた下書きを、足すシートに読み込んで開く */
+  /** 下書きを1件、下書きのシートで開く。足すシートの入れかけ（state.draft）は取っておき、閉じたら戻す */
+  let addDraftKept = null;
   function openDraft(id) {
     const d = ((state.admin && state.admin.drafts) || []).find((x) => x.id === id);
     if (!d) return;
     state.editDay = null;
     state.draftId = d.id;
-    state.picked = d.dates.slice();
-    state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
-    if (d.dates.length) state.pickMonth = monthOf(d.dates[0]);
-    openSheet('add');
+    addDraftKept = state.draft;
+    state.draft = { date: d.date, kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
+    state.adminMonth = monthOf(d.date);
+    openSheet('draft');
   }
-  function closeSheet() { state.daySheet = ''; state.editDay = null; state.error = ''; render(); }
+  function closeSheet() {
+    if (state.daySheet === 'draft') { state.draftId = ''; state.draft = addDraftKept || {}; addDraftKept = null; }
+    state.daySheet = ''; state.editDay = null; state.error = ''; render();
+  }
+  /** 下書きのシートの欄の今の値 */
+  function draftForm() {
+    const f = app.querySelector('form[data-form="draft"]');
+    return f ? kindOf(Object.fromEntries(new FormData(f))) : {};
+  }
   /** 練習日の種類・時刻・メモの欄 */
   function dayFields(v) {
     // 選択肢にない種類（本番・授業など）は「その他」にして、下の欄に書く
@@ -1198,6 +1215,7 @@
   function keepDraft() {
     const f = app.querySelector('form[data-form="days"]');
     if (f) state.draft = kindOf(Object.fromEntries(new FormData(f)));
+    else if (state.daySheet === 'draft') state.draft = draftForm();
   }
   /** 種類の選択（kindSel）と「その他」の欄（kindOther）から、送る種類（kind）を決める */
   function kindOf(f) {
@@ -1317,7 +1335,7 @@
     state.me = r.me;
     state.today = r.today;
     // 下書きは日付ごとに予定の形にして、カレンダーにだけ点線で出す（パートリーダーと管理者だけ届く）
-    const drafts = (r.drafts || []).flatMap((x) => x.dates.map((date) => ({ id: `draft-${x.id}-${date}`, draftId: x.id, draft: true, date, kind: x.kind, st: x.st, en: x.en, note: x.note, noentry: x.noentry })));
+    const drafts = (r.drafts || []).map((x) => Object.assign({}, x, { id: `draft-${x.id}`, draftId: x.id, draft: true }));
     state.events = r.days.concat(drafts).sort((a, b) => (a.date + a.st < b.date + b.st ? -1 : a.date + a.st > b.date + b.st ? 1 : 0));
     state.days = r.days.filter((d) => !d.noentry);
     state.answers = r.answers;
@@ -1499,8 +1517,6 @@
     'admin-tab': (el) => { state.adminTab = el.dataset.tab; state.flash = ''; state.error = ''; state.tempPin = null; state.editDay = null; state.daySheet = ''; render(); },
     'add-day': () => {
       state.editDay = null;
-      // 下書きを開いたあとに＋を押したら、その下書きとは別の新しい入力にする
-      if (state.draftId) { state.draftId = ''; state.picked = []; state.draft = {}; }
       openSheet('add');
     },
     'home-draft': (el) => run(async () => {
@@ -1510,29 +1526,52 @@
       if (state.admin) openDraft(el.dataset.id);
     }),
     'open-draft': (el) => openDraft(el.dataset.id),
+    // 足すシートで選んだ日付ごとに、1件ずつ下書きを作る
     'save-draft': () => {
       keepDraft();
       run(async () => {
-        const r = await api('saveDraft', Object.assign({}, state.draft, { id: state.draftId, dates: state.picked }));
+        const dates = state.picked.slice();
+        const r = await api('saveDraft', Object.assign({}, state.draft, { dates }));
         if (!check(r)) return;
         state.admin.drafts = r.drafts;
         await loadHome(); // ホームのカレンダーの下書きも新しくする
-        state.flash = '下書きに保存しました';
-        state.draftId = '';
+        state.flash = `${dates.length}日分を下書きに保存しました`;
+        state.adminMonth = monthOf(dates[0]);
         state.picked = [];
-        state.draft = {};
         state.daySheet = '';
         render();
       });
     },
+    // 下書きのシートで、内容を直して下書きのまま保存する
+    'update-draft': () => {
+      const f = draftForm();
+      run(async () => {
+        const r = await api('saveDraft', Object.assign({}, f, { id: state.draftId }));
+        if (!check(r)) { state.draft = f; return; }
+        state.admin.drafts = r.drafts;
+        await loadHome();
+        state.flash = `${dateLabel(f.date)}の下書きを保存しました`;
+        state.adminMonth = monthOf(f.date);
+        closeSheet();
+      });
+    },
+    'publish-draft': (el) => {
+      const d = (state.admin.drafts || []).find((x) => x.id === el.dataset.id);
+      if (!d || !confirm(`${dateLabel(d.date)}の下書きを公開しますか？団員に見えるようになります。`)) return;
+      run(async () => {
+        const r = await api('publishDraft', { id: d.id });
+        if (!check(r)) return;
+        state.flash = `${dateLabel(d.date)}を公開しました`;
+        await reloadAll();
+      });
+    },
     'delete-draft': (el) => {
       const d = (state.admin.drafts || []).find((x) => x.id === el.dataset.id);
-      if (!d || !confirm(`下書き（${d.kind || '種類なし'}・${d.dates.length}日）を消しますか？`)) return;
+      if (!d || !confirm(`${dateLabel(d.date)}の下書きを消しますか？`)) return;
       run(async () => {
         const r = await api('deleteDraft', { id: d.id });
         if (!check(r)) return;
         state.admin.drafts = r.drafts;
-        if (state.draftId === d.id) state.draftId = '';
         await loadHome();
         render();
       });
@@ -1543,7 +1582,6 @@
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
       if (!d) return;
       state.editDay = null;
-      state.draftId = '';
       state.draft = { kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry };
       state.picked = [];
       openSheet('add');
@@ -1675,6 +1713,15 @@
       Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : '連絡を掲載しました' });
       if (!edit) state.view = 'news';
     }),
+    // 下書きのシートの「公開する」。直した内容で練習日にし、下書きを消す
+    'draft': (f) => run(async () => {
+      const r = await api('publishDraft', Object.assign({}, f, { id: state.draftId }));
+      if (!check(r)) { state.draft = f; return; }
+      state.flash = `${dateLabel(f.date)}を公開しました`;
+      state.adminMonth = monthOf(f.date);
+      state.daySheet = 'draft'; closeSheet();
+      await reloadAll();
+    }),
     'day': (f) => run(async () => {
       const params = Object.assign({ id: state.editDay ? state.editDay.id : '' }, f);
       let r = await api('saveDay', params);
@@ -1691,12 +1738,11 @@
     }),
     'days': (f) => run(async () => {
       const dates = state.picked.slice();
-      const r = await api('saveDays', Object.assign({}, f, { dates, draftId: state.draftId }));
+      const r = await api('saveDays', Object.assign({}, f, { dates }));
       if (!check(r)) { state.draft = f; return; }
       state.flash = dates.length === 1 ? `${dateLabel(dates[0])}を足しました` : `${dateLabel(dates[0])}から${dateLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
       state.picked = [];
       state.daySheet = '';
-      state.draftId = '';
       state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
       await reloadAll();
     }),
