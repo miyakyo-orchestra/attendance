@@ -148,6 +148,8 @@ legend { padding: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--sub);
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 
 .flash { padding: 12px 14px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); font-size: 14px; font-weight: 500; }
+.flash.with-act { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.flash.with-act .link { min-height: 44px; margin: -12px -4px -12px 0; padding: 0 4px; color: var(--blue); font-weight: 600; }
 .flash.temp-pin { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .flash.temp-pin b { font-size: 24px; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; user-select: all; }
 .error { padding: 12px 14px; border-radius: 10px; background: var(--red-soft); color: var(--red-ink); font-size: 14px; font-weight: 500; }

@@ -241,6 +241,23 @@ export class Store {
       this.db.exec('DELETE FROM days WHERE id = ?', id);
     }
   }
+  /** 練習日を、その出欠ごと控えに移す（取り消しで戻せる）。呼ぶ側で db.txn に入れる */
+  trashDay(id) {
+    const day = this.db.exec('SELECT * FROM days WHERE id = ?', id)[0];
+    if (!day) return false;
+    const answers = this.db.exec('SELECT * FROM answers WHERE day_id = ?', id);
+    this.db.exec('INSERT OR REPLACE INTO trash_days (id, day, answers, deleted_at) VALUES (?, ?, ?, ?)', id, JSON.stringify(day), JSON.stringify(answers), this.now());
+    this.removeDays([id]);
+    return true;
+  }
+  /** 消した練習日の一覧（新しく消した順）。期限を過ぎた控えはここで消す。欠席理由は返さない */
+  listTrash() {
+    this.db.exec('DELETE FROM trash_days WHERE deleted_at < ?', this.now() - LIMITS.TRASH_DAYS * DAY_MS);
+    return this.db.exec('SELECT id, day, answers, deleted_at FROM trash_days ORDER BY deleted_at DESC').map((r) => {
+      const d = JSON.parse(r.day);
+      return { id: r.id, date: d.date, kind: d.kind, st: d.st, en: d.en, note: d.note, noentry: d.noentry, answers: JSON.parse(r.answers).length, deletedAt: r.deleted_at };
+    });
+  }
   /** 団員を、出欠の記録・ログイン・パスキーごと消す。最後の管理者は、団員としてのログインからは消せない */
   removeMembers(ids, who) {
     const rows = ids.map((id) => this.member(id));
@@ -250,6 +267,12 @@ export class Store {
     this.db.txn(() => {
       for (const id of ids) {
         for (const table of ['answers', 'sessions', 'passkeys', 'notice_reads']) this.db.exec(`DELETE FROM ${table} WHERE member_id = ?`, id);
+        // 消した練習日の控えからも、その人の出欠を消す
+        for (const t of this.db.exec('SELECT id, answers FROM trash_days')) {
+          const list = JSON.parse(t.answers);
+          const rest = list.filter((x) => x.member_id !== id);
+          if (rest.length !== list.length) this.db.exec('UPDATE trash_days SET answers = ? WHERE id = ?', JSON.stringify(rest), t.id);
+        }
         this.db.exec('DELETE FROM members WHERE id = ?', id);
       }
     });
@@ -563,9 +586,9 @@ const PRIVATE = {
   /** 管理画面に出すもの。パートリーダーには練習日だけを返す */
   adminData: ['officer', function (p, who) {
     // パートリーダーには、暗証番号の再設定のために団員の氏名・パート・役割も返す
-    if (who.role !== 'admin') return { ok: true, days: this.listDays(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
+    if (who.role !== 'admin') return { ok: true, days: this.listDays(), trash: this.listTrash(), members: this.db.exec('SELECT id, name, part, role FROM members ORDER BY name'), parts: this.parts() };
     const members = this.db.exec('SELECT id, name, part, role, created_at FROM members ORDER BY name');
-    return { ok: true, days: this.listDays(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
+    return { ok: true, days: this.listDays(), trash: this.listTrash(), members, open: !!this.kget('passphrase'), roles: ROLES, parts: this.parts() };
   }],
 
   saveDay: ['officer', function (p) {
@@ -601,10 +624,31 @@ const PRIVATE = {
     return { ok: true, added: dates.length, days: this.listDays() };
   }],
 
+  /** 練習日を消す。30日のあいだは控えに残し、restoreDay で戻せる */
   deleteDay: ['officer', function (p) {
     const id = String(p.id || '');
-    this.db.txn(() => this.removeDays([id]));
-    return { ok: true, days: this.listDays() };
+    const done = this.db.txn(() => this.trashDay(id));
+    if (!done) return fail('練習日が見つかりません。', 'NOT_FOUND');
+    return { ok: true, id, days: this.listDays(), trash: this.listTrash() };
+  }],
+
+  /** 消した練習日を、その出欠ごと戻す。そのあいだに消された団員の出欠は戻さない */
+  restoreDay: ['officer', function (p) {
+    const id = String(p.id || '');
+    const t = this.db.exec('SELECT * FROM trash_days WHERE id = ? AND deleted_at >= ?', id, this.now() - LIMITS.TRASH_DAYS * DAY_MS)[0];
+    if (!t) return fail('戻せる練習日が見つかりません。', 'NOT_FOUND');
+    const d = JSON.parse(t.day);
+    this.db.txn(() => {
+      if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) {
+        this.db.exec('INSERT INTO days (id, date, kind, st, en, note, noentry) VALUES (?, ?, ?, ?, ?, ?, ?)', id, d.date, d.kind, d.st, d.en, d.note, d.noentry || 0);
+      }
+      for (const a of JSON.parse(t.answers)) {
+        if (!this.member(a.member_id)) continue;
+        this.db.exec('INSERT OR IGNORE INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', id, a.member_id, a.status, a.reason || '', a.at || '', a.updated_at);
+      }
+      this.db.exec('DELETE FROM trash_days WHERE id = ?', id);
+    });
+    return { ok: true, date: d.date, days: this.listDays(), trash: this.listTrash() };
   }],
 
   setRole: ['admin', function (p, who) {

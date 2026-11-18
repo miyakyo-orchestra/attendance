@@ -42,6 +42,7 @@ export const LIMITS = {
   GATE_FAILURES: 10, // 合言葉・管理用パスワードを、同じ接続元から続けて間違えたら止める回数
   LOCK_SECONDS: 600, // 止める時間。暗証番号は止めるたびに倍にする
   PIN_LOCK_MAX_SECONDS: 86400, // 暗証番号で止める時間の上限（1日）
+  TRASH_DAYS: 30, // 消した練習日を、取り消しで戻せる日数
   SESSION_DAYS: 180, // 最後に使ってから、これだけ使わなければログインし直し
   DAYS_AT_ONCE: 100, // 練習日をまとめて足すときの上限
   PART_ID: /^[A-Za-z0-9]{1,8}$/, // パートの名前（Vn・Tu など）

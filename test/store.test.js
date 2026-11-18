@@ -678,3 +678,38 @@ test('連絡はパートを対象にでき、対象外の団員には見えず�
   // 管理者には全部が見える
   assert.equal((await t.call('notices', {}, t.adminToken)).notices.length, 2);
 });
+
+test('消した練習日は、出欠ごと取り消しで戻せる。30日を過ぎると戻せない', async () => {
+  const t = await ready();
+  const a = await join(t, '休む人', 'Vc');
+  assert.equal((await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '授業' }, a)).ok, true);
+  const del = await t.call('deleteDay', { id: t.dayId }, t.adminToken);
+  assert.equal(del.ok, true);
+  assert.equal(del.days.some((d) => d.id === t.dayId), false);
+  assert.equal(del.trash[0].id, t.dayId);
+  assert.equal(del.trash[0].answers, 1);
+  assert.equal('reason' in del.trash[0], false);
+  // 団員は戻せない
+  assert.equal((await t.call('restoreDay', { id: t.dayId }, a)).code, 'FORBIDDEN');
+  const back = await t.call('restoreDay', { id: t.dayId }, t.adminToken);
+  assert.equal(back.ok, true);
+  assert.equal(back.trash.length, 0);
+  const roster = await t.call('roster', { dayId: t.dayId }, t.adminToken);
+  assert.equal(JSON.stringify(roster).includes('授業'), true);
+  // 30日を過ぎると控えは消える
+  await t.call('deleteDay', { id: t.dayId }, t.adminToken);
+  t.advance(31 * 24 * 3600e3);
+  assert.equal((await t.call('restoreDay', { id: t.dayId }, t.adminToken)).code, 'NOT_FOUND');
+  assert.equal((await t.call('adminData', {}, t.adminToken)).trash.length, 0);
+});
+
+test('団員を消すと、消した練習日の控えからもその人の出欠が消える', async () => {
+  const t = await ready();
+  const a = await join(t, '消える人', 'Vc');
+  const id = (await t.call('home', {}, a)).me.id;
+  await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '秘密' }, a);
+  await t.call('deleteDay', { id: t.dayId }, t.adminToken);
+  assert.equal((await t.call('deleteMember', { id }, t.adminToken)).ok, true);
+  assert.equal((await t.call('adminData', {}, t.adminToken)).trash[0].answers, 0);
+  assert.equal((await t.call('restoreDay', { id: t.dayId }, t.adminToken)).ok, true);
+});

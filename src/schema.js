@@ -58,6 +58,9 @@ export function initSchema(db) {
     x("ALTER TABLE notices ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'");
   }
   x(`CREATE TABLE IF NOT EXISTS notice_reads (notice_id TEXT NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (notice_id, member_id))`);
+  // 消した練習日の控え（2026-11-18 から）。取り消しで戻せるよう、練習日（day）と出欠（answers）を JSON で30日だけ置く
+  x(`CREATE TABLE IF NOT EXISTS trash_days (id TEXT PRIMARY KEY, day TEXT NOT NULL, answers TEXT NOT NULL DEFAULT '[]',
+    deleted_at INTEGER NOT NULL)`);
   // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
   x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
   // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す
