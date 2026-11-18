@@ -85,6 +85,7 @@
     rosterMonth: '',
     passkeys: null, // 自分のパスキーの一覧（設定の画面）
     admin: null,
+    undo: null, // 消した直後の練習日（取り消すボタン用）
     adminTab: 'days', // 管理画面のタブ
     editDay: null,
     nudge: null, // 未回答の合奏を知らせるシートに並べる練習日の id。開いていなければ null
@@ -492,8 +493,10 @@
   }
   function messages() {
     const t = state.view === 'admin' && state.tempPin;
+    // 練習日を消した直後だけ、取り消すボタンを出す（ほかの知らせに替わったら出さない）
+    const undo = state.view === 'admin' && state.undo && state.undo.text === state.flash ? state.undo : null;
     return (state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '')
-      + (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '')
+      + (state.flash ? `<div class="flash${undo ? ' with-act' : ''}" role="status">${esc(state.flash)}${undo ? `<button class="link" data-act="restore-day" data-id="${esc(undo.id)}">取り消す</button>` : ''}</div>` : '')
       + (t ? `<div class="flash temp-pin" role="status">${esc(t.name)}の仮の暗証番号<b>${esc(t.pin)}</b></div>` : '');
   }
   /** 曜日の並び（日〜土） */
@@ -1092,6 +1095,11 @@
         </div>
         <div class="adm-body">${ds.length ? `<section class="card">${ds.map(adminDayRow).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
       </div>
+      ${a.trash && a.trash.length ? `<section class="card trash">
+        <div class="part-head"><div class="label-row"><h2>消した練習日</h2>${tip('消した練習日', '消してから30日のあいだは、その日の出欠ごと戻せます。')}</div></div>
+        ${a.trash.map((d) => `<div class="list-row"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.answers ? `出欠${d.answers}人` : ''].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost" data-act="restore-day" data-id="${esc(d.id)}">戻す</button></div></div>`).join('')}
+      </section>` : ''}
       ${state.daySheet ? daySheet() : ''}`;
   }
   function adminDayRow(d) {
@@ -1473,9 +1481,17 @@
         const r = await api('deleteDay', { id: d.id });
         if (!check(r)) return;
         state.flash = `${dateLabel(d.date)}を消しました`;
+        state.undo = { id: d.id, text: state.flash };
         await reloadAll();
       });
     },
+    'restore-day': (el) => run(async () => {
+      const r = await api('restoreDay', { id: el.dataset.id });
+      state.undo = null;
+      if (!check(r)) return;
+      state.flash = `${dateLabel(r.date)}を戻しました`;
+      await reloadAll();
+    }),
     'pick-day': (el) => { keepDraft(); const d = el.dataset.date; togglePicked([d], !state.picked.includes(d)); render(); },
     'pick-weekday': (el) => {
       keepDraft();
