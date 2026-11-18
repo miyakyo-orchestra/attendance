@@ -5,6 +5,8 @@
  * 表は IF NOT EXISTS、列やデータの直しは「まだ直していないときだけ」行う。
  */
 
+import { randomId } from './secret.js';
+
 export function initSchema(db) {
   const x = (q) => db.exec(q);
   const hasColumn = (table, col) => db.exec(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`, col).length > 0;
@@ -65,6 +67,21 @@ export function initSchema(db) {
   x(`CREATE TABLE IF NOT EXISTS day_drafts (id TEXT PRIMARY KEY, dates TEXT NOT NULL DEFAULT '[]', kind TEXT NOT NULL DEFAULT '',
     st TEXT NOT NULL DEFAULT '', en TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', noentry INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL)`);
+  // 2026-11-18 から下書きは1日1件。日付は date に置く。前の、いくつもの日付をまとめた下書きは日付ごとの下書きに分ける
+  // （内容はそのまま写し、どの下書きも消さない）
+  if (!hasColumn('day_drafts', 'date')) {
+    x("ALTER TABLE day_drafts ADD COLUMN date TEXT NOT NULL DEFAULT ''");
+    for (const d of db.exec('SELECT * FROM day_drafts')) {
+      let dates = [];
+      try { dates = JSON.parse(d.dates); } catch (e) { /* 壊れていれば日付なしのまま残す */ }
+      if (!Array.isArray(dates)) dates = [];
+      dates.forEach((date, i) => {
+        if (i === 0) { db.exec("UPDATE day_drafts SET date = ?, dates = '[]' WHERE id = ?", String(date), d.id); return; }
+        db.exec("INSERT INTO day_drafts (id, dates, date, kind, st, en, note, noentry, updated_at) VALUES (?, '[]', ?, ?, ?, ?, ?, ?, ?)",
+          randomId(9), String(date), d.kind, d.st, d.en, d.note, d.noentry, d.updated_at);
+      });
+    }
+  }
   // 小さな値（合言葉・入力ミスの回数など）。exp は期限（ミリ秒。0 は無期限）
   x('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL, exp INTEGER NOT NULL DEFAULT 0)');
   // 2026-10-15 から Vn1 と Vn2 を分けず Vn にまとめた。前に登録した人を一度だけ Vn に直す
