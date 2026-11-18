@@ -542,3 +542,9 @@ body.sheet-open { overflow: hidden; }
 /* 練習日を足す下書きの行。行の本体を押すと足すシートに読み込む */
 .list-row button.main { text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; min-height: 44px; justify-content: center; cursor: pointer; }
 .ghost:disabled { color: var(--grey); opacity: .45; }
+/* 下書きの予定は、カレンダーでは点線の枠、予定の行では点線の縦線で出す */
+.mv-ev.draft { background: none; border: 1px dashed currentColor; }
+.ag-bar.draft { width: 0; border-radius: 0; background: none; border-left: 3px dashed var(--grey); }
+.ag-bar.draft.part { border-left-color: var(--part); }
+.ag-bar.draft.tutti { border-left-color: var(--tutti); }
+.ag-bar.draft.stage { border-left-color: var(--stage); }

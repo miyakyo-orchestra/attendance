@@ -277,6 +277,8 @@ test('練習日を足す下書きは団員に見せず、足したら消える',
   const member = await join(t, '団員', 'Va');
   assert.equal((await t.call('saveDraft', { dates: ['2026-11-01'] }, member)).code, 'FORBIDDEN');
   assert.ok(!(await t.call('home', {}, member)).days.some((d) => d.date === '2026-11-07'));
+  assert.equal((await t.call('home', {}, member)).drafts, undefined);
+  assert.equal((await t.call('home', {}, t.adminToken)).drafts.length, 2);
   const a = await t.call('saveDays', { dates: ['2026-11-07'], kind: '分奏', draftId: r.id }, t.adminToken);
   assert.equal(a.drafts.length, 1);
   const left = a.drafts[0].id;

@@ -402,7 +402,9 @@ const PRIVATE = {
       : [];
     const answers = {};
     for (const a of mine) answers[a.day_id] = { status: a.status, reason: a.reason, at: a.at };
-    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), answers, parts: this.parts(), unread: this.unread(who) };
+    // パートリーダーと管理者には、練習日を足す下書きもカレンダーに出すため返す（団員には返さない）
+    const drafts = isOfficer(who.role) ? this.listDrafts() : undefined;
+    return { ok: true, me: this.meOf(who), today: this.today(), days: this.listDays(), drafts, answers, parts: this.parts(), unread: this.unread(who) };
   }],
 
   logout: ['any', function (p, who) {
