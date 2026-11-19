@@ -24,14 +24,8 @@ export const PARTS = [
 // パートの一覧は管理画面から変えられる。変えたものは kv の parts に置き、なければ上の PARTS を使う
 export const GROUPS = ['strings', 'winds'];
 
-// 役割: member（団員）・officer（パートリーダー）・section（セクションリーダー）・admin（管理者）。
-// パートリーダーとセクションリーダーは練習日を登録でき、欠席理由はパートリーダーが自分のパートの分、
-// セクションリーダーが自分のセクションの分を読める。管理者は全員の分
-export const ROLES = ['member', 'officer', 'section', 'admin'];
-
-// セクション。弦はパートの group が strings のもの全部、木管と金管は下のパート。どれにも入らないパート（Perc など）はセクションなし。
-// 画面（public/app.js の SECTION_PARTS）にも同じものを書いているので、変えるときは両方を直す
-export const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
+// 役割: member（団員）・officer（パートリーダー。自分のパートの人の欠席理由を読め、練習日を登録できる）・admin（管理者）
+export const ROLES = ['member', 'officer', 'admin'];
 
 export const LIMITS = {
   NAME: 30,

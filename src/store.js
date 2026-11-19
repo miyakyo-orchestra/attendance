@@ -4,15 +4,14 @@
  * 画面からの呼び出し（POST /api）をここで受けて、確かめてから読み書きする。
  * - データベースの操作は db.exec(SQL, ...値) → 行の配列、db.txn(関数) → 1つの取引にまとめる、の2つだけを使う。
  *   Cloudflare では Durable Object の ctx.storage.sql、テストでは Node の node:sqlite をこの形に合わせて渡す。
- * - 欠席理由は、本人・そのパートのパートリーダー・そのセクションのセクションリーダー・管理者にだけ返す。
- *   返さない相手への応答には、理由の項目そのものを入れない。
+ * - 欠席理由は、本人・そのパートのパートリーダー・管理者にだけ返す。返さない相手への応答には、理由の項目そのものを入れない。
  * - 合言葉・暗証番号・管理用パスワードの照合は時間のかかる計算（待ちが入る）なので先に済ませ、
  *   そのあとの読み書きは待たずに一気に行う（途中で別の呼び出しが割り込まない）。
  */
 
 import { ALGS, bytesOf, readClientData, readAuthData, authDataOf, verifySignature } from './passkey.js';
 import { DUMMY_HASH, toB64url, randomId, sha256, hashSecret, verifySecret } from './secret.js';
-import { GROUPS, LIMITS, PARTS, ROLES, SECTION_PARTS, STATUSES, STATUS_LABEL, DAY_MS } from './limits.js';
+import { GROUPS, LIMITS, PARTS, ROLES, STATUSES, STATUS_LABEL, DAY_MS } from './limits.js';
 import { initSchema } from './schema.js';
 import {
   SAME_NAME, TIME, bare, cleanText, count, csvCell, cut, isDate, jstTime, originOf, personName, tempPin, yearRange,
@@ -20,8 +19,8 @@ import {
 
 export { GROUPS, LIMITS, PARTS, ROLES, STATUS_LABEL, STATUSES } from './limits.js';
 
-/** パートリーダー・セクションリーダー・管理者のどれか（練習日を登録でき、連絡を書ける） */
-function isOfficer(role) { return role === 'officer' || role === 'section' || role === 'admin'; }
+/** パートリーダーか管理者か（練習日を登録でき、連絡を書ける） */
+function isOfficer(role) { return role === 'officer' || role === 'admin'; }
 
 export class Store {
   /**
@@ -156,19 +155,10 @@ export class Store {
       canReadReasons: isOfficer(who.role),
     };
   }
-  /**
-   * 欠席理由を読めるパート。管理者は全部（null）、パートリーダーは自分のパート、
-   * セクションリーダーは自分のセクション（弦・木管・金管）のパート。セクションのないパートの人なら自分のパートだけ。
-   * 団員は空（自分の分は呼ぶ側で足す）
-   */
+  /** 欠席理由を読めるパート。管理者は全部（null）、パートリーダーは自分のパート、団員は空（自分の分は呼ぶ側で足す） */
   reasonParts(who) {
     if (who.role === 'admin') return null;
-    if (!who.member || !isOfficer(who.role)) return [];
-    const mine = who.member.part;
-    if (who.role !== 'section') return [mine];
-    const parts = this.parts();
-    const sec = sectionOf(mine, parts);
-    return sec ? parts.filter((p) => sectionOf(p.id, parts) === sec).map((p) => p.id) : [mine];
+    return who.member && who.role === 'officer' ? [who.member.part] : [];
   }
   adminCount() {
     return this.db.exec("SELECT COUNT(*) AS n FROM members WHERE role = 'admin'")[0].n;
@@ -308,7 +298,7 @@ const ALLOWED = {
 };
 const DENIED = {
   member: '団員としてログインしてください。',
-  officer: 'パートリーダー・セクションリーダーと管理者だけが使えます。',
+  officer: 'パートリーダーと管理者だけが使えます。',
   admin: '管理者だけが使えます。',
 };
 
@@ -531,7 +521,7 @@ const PRIVATE = {
     return { ok: true, passkeys: this.passkeyList(who.member.id) };
   }],
 
-  /** 練習日ごとの、パート別の出欠。欠席理由は本人と、そのパートのパートリーダー・そのセクションのセクションリーダー・管理者にだけ入れる */
+  /** 練習日ごとの、パート別の出欠。欠席理由は本人と、そのパートのパートリーダー・管理者にだけ入れる */
   roster: ['any', function (p, who) {
     const day = this.db.exec('SELECT id, date, kind, st, en, note FROM days WHERE id = ? AND noentry = 0', String(p.dayId || ''))[0];
     if (!day) return fail('練習日が見つかりません。', 'NOT_FOUND');
@@ -760,7 +750,7 @@ const PRIVATE = {
     const id = String(p.id || '');
     const target = this.member(id);
     if (!target) return fail('団員が見つかりません。', 'NOT_FOUND');
-    if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダー・セクションリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
+    if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
     const pin = tempPin();
     const hash = await hashSecret(pin);
     // 計算を待つあいだに役割が変わっていることがあるので、読み直して確かめ直す
@@ -769,7 +759,7 @@ const PRIVATE = {
     const by = who.member ? this.member(who.member.id) : null;
     const role = who.member ? (by ? by.role : '') : 'admin';
     if (!isOfficer(role)) return fail(DENIED.officer, 'FORBIDDEN');
-    if (role !== 'admin' && fresh.role !== 'member') return fail('パートリーダー・セクションリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
+    if (role !== 'admin' && fresh.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
     this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', hash, id);
     return { ok: true, name: target.name, pin };
   }],
@@ -857,12 +847,6 @@ function dayFields(p) {
 function canEditNotice(who, n) {
   if (who.role === 'admin') return true;
   return isOfficer(who.role) && !!who.member && n.by_id === who.member.id;
-}
-/** パートのセクション（strings・woodwinds・brass）。どれにも入らなければ空 */
-function sectionOf(id, parts) {
-  const p = parts.find((x) => x.id === id);
-  if (p && p.group === 'strings') return 'strings';
-  return Object.keys(SECTION_PARTS).find((k) => SECTION_PARTS[k].includes(id)) || '';
 }
 /** 連絡の対象のパート。空の配列なら全員 */
 function noticeParts(n) {

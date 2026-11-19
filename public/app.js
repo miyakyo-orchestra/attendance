@@ -21,12 +21,12 @@
   const TOKEN_KEY = 'attendance.token';
   const VIEW_KEY = 'attendance.homeView'; // 練習日をカレンダーとリストのどちらで見るか（端末ごとに覚える）
   const WEEKDAYS = '日月火水木金土';
-  const ROLE_LABEL = { member: '団員', officer: 'パートリーダー', section: 'セクションリーダー', admin: '管理者' };
+  const ROLE_LABEL = { member: '団員', officer: 'パートリーダー', admin: '管理者' };
   const STATUS_LABEL = { attend: '出席', late: '遅刻', early: '早退', absent: '欠席', none: '未回答' };
   const GROUP_LABEL = { strings: '弦', winds: '管打' };
   // 一覧の絞り込みのセクション。弦は管理画面で弦にしたパート、木管・金管は名前で決める（打楽器などはどれにも入らない）
   const SECTION_LABEL = { strings: '弦', woodwinds: '木管', brass: '金管' };
-  const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] }; // src/limits.js の SECTION_PARTS と同じにする
+  const SECTION_PARTS = { woodwinds: ['Fl', 'Ob', 'Cl', 'Fg'], brass: ['Hr', 'Tp', 'Tb', 'Tu'] };
   const KINDS = ['個人・パート', 'パート練習', '分奏', '合奏']; // 練習日の種類の選択肢。ほかは「その他」で書く
   const ADMIN_TABS = [['days', '練習日'], ['members', '団員'], ['parts', 'パート'], ['records', '記録']];
 
@@ -307,7 +307,7 @@
     return d.en <= new Date(Date.now() + 9 * 3600000).toISOString().slice(11, 16);
   }
   function isMember() { return state.me && state.me.id; }
-  function isOfficer() { return state.me && ['officer', 'section', 'admin'].includes(state.me.role); }
+  function isOfficer() { return state.me && ['officer', 'admin'].includes(state.me.role); }
   function isAdmin() { return state.me && state.me.role === 'admin'; }
   function statusOf(dayId) { const a = state.answers[dayId]; return a ? a.status : 'none'; }
   /** 出欠の札の文字。遅刻・早退は時刻も */
@@ -866,7 +866,7 @@
         <div class="reason-box"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
             <label for="reason">欠席の理由 任意</label>
-            ${tip('理由を読める人', '理由を読めるのは、本人と、そのパートのパートリーダー、そのセクションのセクションリーダー、管理者だけです。')}
+            ${tip('理由を読める人', '理由を読めるのは、本人と、そのパートのパートリーダー、管理者だけです。')}
           </div>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>

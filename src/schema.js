@@ -104,4 +104,6 @@ export function initSchema(db) {
     }
     x("INSERT OR REPLACE INTO kv (k, v, exp) VALUES ('migrated:tu', '1', 0)");
   }
+  // 2026-11-19 にセクションリーダー（section）の役割を一度足して、すぐ取りやめた。その間に付けた人はパートリーダーに戻す
+  x("UPDATE members SET role = 'officer' WHERE role = 'section'");
 }
