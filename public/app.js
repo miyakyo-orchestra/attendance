@@ -122,9 +122,9 @@
         body: JSON.stringify({ action, params: params || {} }),
       });
     } catch (e) {
-      return { ok: false, code: 'NETWORK', message: '通信できませんでした。電波の状態を確かめてください。' };
+      return { ok: false, code: 'NETWORK', message: '通信できませんでした。通信環境を確認してください。' };
     }
-    const data = await res.json().catch(() => ({ ok: false, code: 'ERROR', message: 'サーバーの応答を読めませんでした。' }));
+    const data = await res.json().catch(() => ({ ok: false, code: 'ERROR', message: 'サーバーからの応答を読み込めませんでした。' }));
     if (data.code === 'UNAUTHORIZED') {
       setToken('');
       state.me = null;
@@ -180,8 +180,8 @@
         timeout: 120000,
       } });
     } catch (e) {
-      if (e && e.name === 'InvalidStateError') state.error = 'この端末のパスキーはすでに登録しています。';
-      else if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーを作れませんでした。';
+      if (e && e.name === 'InvalidStateError') state.error = 'この端末のパスキーはすでに登録されています。';
+      else if (!e || e.name !== 'NotAllowedError') state.error = 'パスキーを作成できませんでした。';
       return false;
     }
     const r = await api('passkeyRegister', { clientDataJSON: toB64(cred.response.clientDataJSON), attestationObject: toB64(cred.response.attestationObject) });
@@ -466,7 +466,7 @@
     items.push(['news', n ? `連絡 未読${n}件` : '連絡', 'go-news', ICON.bell + (n ? `<span class="tab-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : '')]);
     if (isOfficer()) items.push(['admin', '管理', 'go-admin', ICON.gear]);
     const current = state.view === 'manual' ? 'admin' : state.view === 'notice' ? 'news' : state.view; // 手引きは管理の、連絡の本文は連絡のタブの中
-    return `<nav class="tabs" aria-label="画面">${items.map(([v, l, act, icon]) => `<button class="tab-${v}" data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
+    return `<nav class="tabs" aria-label="メニュー">${items.map(([v, l, act, icon]) => `<button class="tab-${v}" data-act="${act}" aria-label="${l}"${current === v ? ' aria-current="page"' : ''}>${icon}</button>`).join('')}</nav>`;
   }
   /** 上の帯（iPhone のナビゲーションバーにならう）。左に戻るボタン、真ん中に画面の名前、右に自分のメニュー。
    *  center を渡さず left もなければ、左に団の名前を出す（ログインの前） */
@@ -485,9 +485,9 @@
   }
   function whoMenu() {
     if (!state.me) return '';
-    const label = state.me.part ? `${esc(state.me.name)} ・ ${esc(state.me.part)}` : esc(state.me.name);
+    const label = state.me.part ? `${esc(state.me.name)}（${esc(state.me.part)}）` : esc(state.me.name);
     // 右上は人の形のボタンにし、氏名はメニューの頭に出す。ログアウトは区切って赤で
-    return `<details class="who"><summary aria-label="${label}のメニュー">${ICON.person}</summary><div class="menu">
+    return `<details class="who"><summary aria-label="${esc(state.me.name)}のメニュー">${ICON.person}</summary><div class="menu">
       <div class="menu-head">${label}</div>
       ${isMember() ? '<button data-act="go-profile">設定</button>' : ''}
       <button data-act="go-privacy">プライバシーポリシー</button>
@@ -500,8 +500,8 @@
     // 練習日を消した直後だけ、取り消すボタンを出す（ほかの知らせに替わったら出さない）
     const undo = state.view === 'admin' && state.undo && state.undo.text === state.flash ? state.undo : null;
     return (state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '')
-      + (state.flash ? `<div class="flash${undo ? ' with-act' : ''}" role="status">${esc(state.flash)}${undo ? `<button class="link" data-act="restore-day" data-id="${esc(undo.id)}">取り消す</button>` : ''}</div>` : '')
-      + (t ? `<div class="flash temp-pin" role="status">${esc(t.name)}の仮の暗証番号<b>${esc(t.pin)}</b></div>` : '');
+      + (state.flash ? `<div class="flash${undo ? ' with-act' : ''}" role="status">${esc(state.flash)}${undo ? `<button class="link" data-act="restore-day" data-id="${esc(undo.id)}">元に戻す</button>` : ''}</div>` : '')
+      + (t ? `<div class="flash temp-pin" role="status">${esc(t.name)}さんの仮の暗証番号<b>${esc(t.pin)}</b></div>` : '');
   }
   /** 曜日の並び（日〜土） */
   function weekRow() {
@@ -521,7 +521,7 @@
     const a = state.answers[d.id] || { status: 'none' };
     const date = dateLabel(d.date);
     if (a.status === 'late' || a.status === 'early' || a.status === 'absent') {
-      return `<span class="ans"><button class="pill-btn" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'の出欠を直す')}">${myPill(d, false)}</button></span>`;
+      return `<span class="ans"><button class="pill-btn" data-act="open-answer" data-id="${esc(d.id)}" aria-label="${esc(date + 'の出欠を変更')}">${myPill(d, false)}</button></span>`;
     }
     const on = a.status === 'attend';
     return `<span class="ans"><button class="ans-check${on ? ' on' : ''}" data-act="quick-attend" data-id="${esc(d.id)}" aria-pressed="${on}" aria-label="${esc(date + 'に出席')}"><span class="ring">${ICON.check}</span></button></span>`;
@@ -545,7 +545,7 @@
   }
   // パスキーの説明（i ボタンで開く）
   function passkeyInfo() {
-    return tip('パスキーとは', '指紋や顔、画面ロックでログインできるようになります。暗証番号でのログインも使えます。');
+    return tip('パスキーとは', '指紋・顔認証や画面ロックでログインできるようになります。暗証番号でのログインも引き続き使えます。');
   }
 
   // ---------------- 登録・ログイン ----------------
@@ -553,15 +553,15 @@
     const mode = state.authMode;
     let body;
     if (mode === 'admin') {
-      body = `<h1>管理者</h1>
+      body = `<h1>管理者ログイン</h1>
         <form data-form="admin-login" class="stack">
           <label class="field">管理用パスワード<input class="input" type="password" name="password" autocomplete="current-password" required></label>
           <button class="cta" type="submit">ログイン</button>
         </form>
-        <p class="auth-alt"><button class="link" data-act="auth-mode" data-mode="login">団員のログインに戻る</button></p>`;
+        <p class="auth-alt"><button class="link" data-act="auth-mode" data-mode="login">団員ログインに戻る</button></p>`;
     } else if (mode === 'register') {
-      body = `<h1>登録</h1>
-        ${!state.open ? '<div class="error">まだ登録を受け付けていません。</div>' : ''}
+      body = `<h1>新規登録</h1>
+        ${!state.open ? '<div class="error">現在、新規登録を受け付けていません。</div>' : ''}
         <form data-form="register" class="stack">
           <label class="field">合言葉<input class="input" type="password" name="passphrase" autocomplete="off" required></label>
           ${nameFields()}
@@ -578,7 +578,7 @@
           <label class="field">暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4〜8桁の数字" required></label>
           <button class="${PASSKEY ? 'ghost wide-btn' : 'cta'}" type="submit">${PASSKEY ? '暗証番号でログイン' : 'ログイン'}</button>
         </form>
-        <p class="auth-alt">はじめての方は<button class="link" data-act="auth-mode" data-mode="register">登録</button></p>
+        <p class="auth-alt">はじめての方は<button class="link" data-act="auth-mode" data-mode="register">新規登録</button></p>
         <div class="auth-bottom">
           ${PASSKEY ? '<button class="cta" data-act="passkey-login">パスキーでログイン</button>' : ''}
           <p class="auth-alt small"><button class="link" data-act="auth-mode" data-mode="admin">管理者の方</button><button class="link" data-act="go-privacy">プライバシーポリシー</button></p>
@@ -590,9 +590,9 @@
   // 登録やログインのすぐあとに、パスキーを作るよう勧める
   function viewOffer() {
     return top(whoMenu()) + `<main class="offer">
-      <div class="offer-head"><h1>パスキーを作りますか</h1>${passkeyInfo()}</div>
+      <div class="offer-head"><h1>パスキーを作成しますか？</h1>${passkeyInfo()}</div>
       ${messages()}
-      <button class="cta" data-act="passkey-create">作る</button>
+      <button class="cta" data-act="passkey-create">作成する</button>
       <button class="link" data-act="go-home">あとで</button>
     </main>`;
   }
@@ -604,7 +604,7 @@
     const body = list ? dayList() : monthView() + agenda(); // 先に描くと、カレンダーの選ぶ日が決まる
     // カレンダーの下の予定が見えるよう、月の見出しと前後の月・今日のボタンは上の帯に置く。
     // 右のリストのボタンを押すとリスト（押した形）、もう一度押すとカレンダー
-    const toggle = `<button class="icon view-toggle" data-act="home-view" data-v="${list ? 'calendar' : 'list'}" aria-pressed="${list}" aria-label="リストで見る">${ICON.listview}</button>`;
+    const toggle = `<button class="icon view-toggle" data-act="home-view" data-v="${list ? 'calendar' : 'list'}" aria-pressed="${list}" aria-label="リスト表示">${ICON.listview}</button>`;
     const g = parseDate(state.month + '-01');
     const left = list ? '<h1 class="mv-title">練習日</h1>' : `<h1 class="mv-title"><small>${g.y}年</small>${g.m}月</h1>`;
     const nav = list ? '' : `${state.calDate !== state.today ? '<button class="mv-today" data-act="cal-today">今日</button>' : ''}
@@ -622,7 +622,7 @@
     const upcoming = state.days.filter((d) => d.date >= state.today);
     const past = state.days.filter((d) => d.date < state.today).reverse();
     let html = '';
-    if (!upcoming.length) html = '<div class="empty">これからの練習日はありません</div>';
+    if (!upcoming.length) html = '<div class="empty">今後の練習日はありません</div>';
     else {
       const next = upcoming.filter((d) => d.date === upcoming[0].date);
       const rest = upcoming.slice(next.length);
@@ -727,7 +727,7 @@
       <section class="sheet nudge-sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="未回答の合奏">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div><h2>未回答の合奏</h2><p class="title-meta">${left ? `あと${left}件` : 'すべて回答しました'}</p></div>
+          <div><h2>未回答の合奏</h2><p class="title-meta">${left ? `残り${left}件` : 'すべて回答しました'}</p></div>
           <button class="icon close-round" data-act="close-nudge" aria-label="閉じる">${ICON.close}</button>
         </div>
         <div class="sheet-body"><div class="card">${ds.map((d) => dayRow(d, false)).join('')}</div></div>
@@ -762,13 +762,13 @@
     const sel = selected || [];
     const some = sel.length > 0;
     const rows = targetGroups().map(([k, label, ps]) => `<div class="tg-row">
-        <label class="tg-sec"><input type="checkbox" name="section" value="${k}" aria-label="${label}をまとめて選ぶ"><span class="tg-mark" aria-hidden="true">${ICON.check}</span><span>${label}</span></label>
+        <label class="tg-sec"><input type="checkbox" name="section" value="${k}" aria-label="${label}をすべて選択"><span class="tg-mark" aria-hidden="true">${ICON.check}</span><span>${label}</span></label>
         <div class="tg-parts">${ps.map((p) => `<label class="tg-chip"><input type="checkbox" name="parts" value="${esc(p.id)}" data-sec="${k}"${sel.includes(p.id) ? ' checked' : ''}><span>${esc(p.id)}</span></label>`).join('')}</div>
       </div>`).join('');
     return `<fieldset class="targets"><legend>宛先</legend>
       <div class="seg tg-scope" role="radiogroup">
         <label><input type="radio" name="scope" value="all"${some ? '' : ' checked'}><span>全員</span></label>
-        <label><input type="radio" name="scope" value="parts"${some ? ' checked' : ''}><span>パートを選ぶ</span></label>
+        <label><input type="radio" name="scope" value="parts"${some ? ' checked' : ''}><span>パートを指定</span></label>
       </div>
       <div class="card tg-card"${some ? '' : ' hidden'}>${rows}</div>
       <p class="tg-sum" aria-live="polite"></p>
@@ -786,7 +786,7 @@
     const scope = box.querySelector('input[name="scope"]:checked').value;
     box.querySelector('.tg-card').hidden = scope !== 'parts';
     const chosen = parts.filter((x) => x.checked).map((x) => x.value);
-    box.querySelector('.tg-sum').textContent = scope === 'parts' && chosen.length ? `${noticeTo({ parts: chosen })}に送る` : '';
+    box.querySelector('.tg-sum').textContent = scope === 'parts' && chosen.length ? `宛先：${noticeTo({ parts: chosen })}` : '';
   }
   function viewNews() {
     const ns = state.notices || [];
@@ -797,7 +797,7 @@
         ${n.body ? `<span class="news-preview">${esc(n.body)}</span>` : ''}</span>
         <span class="sr">${n.read ? '' : '未読'}</span>
       </button>`).join('');
-    const add = state.canPost ? `<button class="icon" data-act="new-notice" aria-label="連絡を書く">${ICON.plus}</button>` : '';
+    const add = state.canPost ? `<button class="icon" data-act="new-notice" aria-label="連絡を作成">${ICON.plus}</button>` : '';
     return page(`
       ${messages()}
       ${state.notices === null ? '' : `<div class="card news">${rows || '<div class="empty">連絡はまだありません</div>'}</div>`}
@@ -807,12 +807,12 @@
   function viewNotice() {
     const n = (state.notices || []).find((x) => x.id === state.noticeId);
     if (!n) { state.view = 'news'; return viewNews(); }
-    const tools = n.mine ? `<button class="icon" data-act="edit-notice" aria-label="直す">${ICON.edit}</button><button class="icon danger" data-act="del-notice" aria-label="消す">${ICON.trash}</button>` : '';
+    const tools = n.mine ? `<button class="icon" data-act="edit-notice" aria-label="編集">${ICON.edit}</button><button class="icon danger" data-act="del-notice" aria-label="削除">${ICON.trash}</button>` : '';
     return page(`
       <div class="title-block">
         <h1 class="large">${esc(n.title)}</h1>
         <p class="title-meta">${esc(noticeDate(n))}　${esc(n.by)}</p>
-        ${noticeTo(n) ? `<p class="title-meta">宛先 ${esc(noticeTo(n))}</p>` : ''}
+        ${noticeTo(n) ? `<p class="title-meta">宛先：${esc(noticeTo(n))}</p>` : ''}
       </div>
       ${messages()}
       ${n.body ? `<div class="card pad notice-body">${esc(n.body)}</div>` : ''}
@@ -823,7 +823,7 @@
   function noticeSheet() {
     const edit = state.noticeSheet === 'edit';
     const n = edit ? (state.notices || []).find((x) => x.id === state.noticeId) || {} : {};
-    const title = edit ? '連絡を直す' : '連絡を書く';
+    const title = edit ? '連絡を編集' : '連絡を作成';
     const enter = sheetEnter;
     sheetEnter = false;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-notice"></div>
@@ -836,7 +836,7 @@
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}
           <form data-form="notice" class="stack">
             ${noticeTargets(n.parts)}
-            <label class="field">見出し<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
+            <label class="field">件名<input class="input" name="title" value="${esc(n.title || '')}" maxlength="40" required></label>
             <label class="field">本文<textarea class="textarea" name="body" rows="6" maxlength="2000">${esc(n.body || '')}</textarea></label>
             <button class="cta" type="submit">${edit ? '保存する' : '掲載する'}</button>
           </form>
@@ -860,13 +860,13 @@
           ${kinds.map((k) => `<label class="choice"><input type="radio" name="status" value="${k}"${a.status === k ? ' checked' : ''}${dis}><span class="${k}">${STATUS_LABEL[k]}</span></label>`).join('')}
         </div>
         <div class="at-box"${a.status === 'late' || a.status === 'early' ? '' : ' hidden'}>
-          <label class="field" for="at">時刻 任意</label>
+          <label class="field" for="at">時刻（任意）</label>
           <input id="at" name="at" class="input" type="time" data-value="${esc(a.at || '')}"${dis}>
         </div>
         <div class="reason-box"${a.status === 'absent' ? '' : ' hidden'}>
           <div class="label-row">
-            <label for="reason">欠席の理由 任意</label>
-            ${tip('理由を読める人', '理由を読めるのは、本人と、そのパートのパートリーダー、管理者だけです。')}
+            <label for="reason">欠席理由（任意）</label>
+            ${tip('欠席理由の公開範囲', '欠席理由を確認できるのは、本人・所属パートのパートリーダー・管理者だけです。')}
           </div>
           <textarea id="reason" name="reason" class="textarea" rows="4" maxlength="200"${dis}>${esc(a.reason)}</textarea>
         </div>
@@ -909,7 +909,7 @@
     // 日付の並びとカレンダーのボタンは上の帯の下の段に置き、画面を流しても上に残す
     const bar = `<div class="days-bar">
         <div class="day-chips" role="group" aria-label="練習日">${chips}</div>
-        <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選ぶ">${ICON.cal}</button>
+        <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選択">${ICON.cal}</button>
       </div>`;
     return page(`
       ${messages()}
@@ -969,7 +969,7 @@
           <div class="seg" role="group" aria-label="絞り込み">
             ${filters.map(([k, l]) => `<button data-act="roster-group" data-g="${k}" aria-pressed="${group === k}">${l}</button>`).join('')}
           </div>
-          ${r.canReadReasons ? `<button class="icon reason-btn" data-act="roster-reasons" aria-pressed="${showReasons}" aria-label="${showReasons ? '欠席理由を隠す' : '欠席理由を見る'}" title="${showReasons ? '欠席理由を隠す' : '欠席理由を見る'}">${showReasons ? ICON.eye : ICON.eyeOff}</button>` : ''}
+          ${r.canReadReasons ? `<button class="icon reason-btn" data-act="roster-reasons" aria-pressed="${showReasons}" aria-label="${showReasons ? '欠席理由を非表示' : '欠席理由を表示'}" title="${showReasons ? '欠席理由を非表示' : '欠席理由を表示'}">${showReasons ? ICON.eye : ICON.eyeOff}</button>` : ''}
         </div>
         ${sections || '<div class="empty">団員はまだいません</div>'}`;
   }
@@ -986,7 +986,7 @@
       const today = date === state.today;
       if (ds) {
         // 同じ日に練習が二つ以上あれば、点もその数だけ並べる
-        const label = `${g.m}月${n}日${ds.length > 1 ? ` 練習${ds.length}つ` : ''}${isMember() ? ' ' + ds.map((d) => STATUS_LABEL[statusOf(d.id)]).join('・') : ''}`;
+        const label = `${g.m}月${n}日${ds.length > 1 ? ` 練習${ds.length}件` : ''}${isMember() ? ' ' + ds.map((d) => STATUS_LABEL[statusOf(d.id)]).join('・') : ''}`;
         const i = ds.findIndex((d) => d.id === state.rosterDay);
         cells += `<div class="cal-cell"><button class="cal-day${today ? ' today' : ''}" data-act="roster-day" data-id="${esc(ds[(i + 1) % ds.length].id)}" aria-label="${esc(label)}" aria-pressed="${i >= 0}">
           <span>${n}</span>${isMember() ? `<span class="dots">${ds.map((d) => `<span class="dot ${statusOf(d.id)}"></span>`).join('')}</span>` : ''}</button></div>`;
@@ -1021,16 +1021,16 @@
       <details class="card pad fold">
         <summary><h2>暗証番号</h2>${ICON.down}</summary>
         <form data-form="pin" class="stack fold-body">
-          <label class="field">今の暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" required></label>
+          <label class="field">現在の暗証番号<input class="input" type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="current-password" required></label>
           <label class="field">新しい暗証番号<input class="input" type="password" name="newPin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4〜8桁の数字" required></label>
-          <button class="ghost wide-btn" type="submit">変える</button>
+          <button class="ghost wide-btn" type="submit">変更する</button>
         </form>
       </details>
       ${PASSKEY ? `<section class="card">
-        <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo()}</div><span>${keys ? keys.length + '個' : ''}</span></div>
-        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>${esc(dateLabel(jstDate(k.created_at)))}に作成</b><small>${k.last_used ? esc(dateLabel(jstDate(k.last_used))) + 'に使用' : '未使用'}</small></div>
-          <div class="actions"><button class="ghost icon danger" data-act="passkey-delete" data-id="${esc(k.id)}" aria-label="消す" title="消す">${ICON.trash}</button></div></div>`).join('') : ''}
-        <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作る</button></div>
+        <div class="part-head"><div class="label-row"><h2>パスキー</h2>${passkeyInfo()}</div><span>${keys ? keys.length + '件' : ''}</span></div>
+        ${keys && keys.length ? keys.map((k) => `<div class="list-row"><div class="main"><b>作成：${esc(dateLabel(jstDate(k.created_at)))}</b><small>${k.last_used ? '最終使用：' + esc(dateLabel(jstDate(k.last_used))) : '未使用'}</small></div>
+          <div class="actions"><button class="ghost icon danger" data-act="passkey-delete" data-id="${esc(k.id)}" aria-label="削除" title="削除">${ICON.trash}</button></div></div>`).join('') : ''}
+        <div class="pad-box"><button class="ghost wide-btn" data-act="passkey-create">パスキーを作成する</button></div>
       </section>` : ''}
     `, { back: ['go-home', '練習日'] });
   }
@@ -1068,14 +1068,14 @@
   // ---------------- 管理 ----------------
   function viewAdmin() {
     const a = state.admin;
-    if (!a) return page('<div class="empty">読み込み中</div>', { title: '管理' });
+    if (!a) return page('<div class="empty">読み込み中…</div>', { title: '管理' });
     const admin = isAdmin();
     // パートリーダーには練習日と団員（暗証番号の再設定だけ）
     const tabList = admin ? ADMIN_TABS : ADMIN_TABS.filter(([k]) => k === 'days' || k === 'members');
     const tab = tabList.some(([k]) => k === state.adminTab) ? state.adminTab : 'days';
     const body = { days: adminDays, members: adminMembers, parts: adminParts, records: adminRecords }[tab](a);
     return page(`
-      ${`<div class="seg" role="group" aria-label="管理の項目">${tabList.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>`}
+      ${`<div class="seg" role="group" aria-label="管理メニュー">${tabList.map(([k, l]) => `<button data-act="admin-tab" data-tab="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>`}
       ${state.daySheet ? (state.flash ? `<div class="flash" role="status">${esc(state.flash)}</div>` : '') : messages()}
       ${body}
     `, { title: '管理' });
@@ -1094,7 +1094,7 @@
     const away = ym !== monthOf(state.today);
     const nd = (a.drafts || []).length;
     return `<section class="card">
-        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>これから${up.length}日${nd ? ` ・ 下書き${nd}件` : ''}</span><button class="ghost icon" data-act="add-day" aria-label="練習日を足す" title="練習日を足す">${ICON.plus}</button></div></div>
+        <div class="part-head"><h2>練習日</h2><div class="head-end"><span>今後${up.length}件${nd ? ` ・ 下書き${nd}件` : ''}</span><button class="ghost icon" data-act="add-day" aria-label="練習日を追加" title="練習日を追加">${ICON.plus}</button></div></div>
       </section>
       <div class="adm-month">
         <div class="adm-month-head">
@@ -1106,9 +1106,9 @@
         <div class="adm-body">${ds.length ? `<section class="card">${ds.map((d) => (d.draft ? draftRow(d) : adminDayRow(d))).join('')}</section>` : '<div class="empty">この月の練習日はありません</div>'}</div>
       </div>
       ${a.trash && a.trash.length ? `<details class="card fold trash"${state.trashOpen ? ' open' : ''}>
-        <summary data-act="toggle-trash"><h2>消した練習日</h2><span class="count">${a.trash.length}</span>${ICON.down}</summary>
-        ${a.trash.map((d) => `<div class="list-row"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.answers ? `出欠${d.answers}人` : ''].filter(Boolean).join(' ・ '))}</small></div>
-          <div class="actions tight"><button class="ghost" data-act="restore-day" data-id="${esc(d.id)}">戻す</button></div></div>`).join('')}
+        <summary data-act="toggle-trash"><h2>削除した練習日</h2><span class="count">${a.trash.length}</span>${ICON.down}</summary>
+        ${a.trash.map((d) => `<div class="list-row"><span class="ag-bar ${toneOf(d)}"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small>${esc([metaLabel(d), d.answers ? `回答${d.answers}人` : ''].filter(Boolean).join(' ・ '))}</small></div>
+          <div class="actions tight"><button class="ghost" data-act="restore-day" data-id="${esc(d.id)}">復元</button></div></div>`).join('')}
       </details>` : ''}
       ${state.daySheet ? daySheet() : ''}`;
   }
@@ -1118,7 +1118,7 @@
   }
   /** 下書きの行。右の三点メニューで公開・編集・削除を1件ずつ */
   function draftRow(d) {
-    return `<div class="list-row draft${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)} draft"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small><span class="badge">下書き</span> ${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d) || '種類なし', d.note].filter(Boolean).join(' ・ '))}</small></div>
+    return `<div class="list-row draft${d.date < state.today ? ' past' : ''}"><span class="ag-bar ${toneOf(d)} draft"></span><div class="main"><b>${esc(dateLabel(d.date))}</b><small><span class="badge">下書き</span> ${d.noentry ? '<span class="badge">出欠なし</span> ' : ''}${esc([metaLabel(d) || '種類未設定', d.note].filter(Boolean).join(' ・ '))}</small></div>
           ${rowMenu(d, [['publish-draft', '公開', ICON.publish], ['open-draft', '編集', ICON.edit]], 'delete-draft')}</div>`;
   }
   /** 行の右の三点ボタンと、押すと開くメニュー。削除は区切って赤で最後に置く */
@@ -1135,14 +1135,14 @@
     const e = state.editDay || {};
     const draft = state.daySheet === 'draft';
     const edit = state.daySheet === 'edit' || draft;
-    const title = draft ? '下書き' : edit ? '練習日を直す' : '練習日を足す';
+    const title = draft ? '下書きを編集' : edit ? '練習日を編集' : '練習日を追加';
     const enter = sheetEnter;
     sheetEnter = false;
     const body = draft ? `<form data-form="draft" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(state.draft.date || '')}" required></label>
           ${dayFields(state.draft)}
           <button class="cta full" type="submit">公開する</button>
-          <button class="ghost full" type="button" data-act="update-draft">下書きを保存</button>
+          <button class="ghost full" type="button" data-act="update-draft">下書きを保存する</button>
         </form>` : edit ? `<form data-form="day" class="form-grid">
           <label class="field full">日付<input class="input" type="date" name="date" value="${esc(e.date || '')}" required></label>
           ${dayFields(e)}
@@ -1150,15 +1150,15 @@
         </form>` : `${pickCalendar()}
         <form data-form="days" class="form-grid">
           ${dayFields(state.draft)}
-          <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を足す` : '日付を選ぶ'}</button>
-          <button class="ghost full" type="button" data-act="save-draft"${state.picked.length ? '' : ' disabled'}>下書きに保存</button>
+          <button class="cta full" type="submit"${state.picked.length ? '' : ' disabled'}>${state.picked.length ? `${state.picked.length}日を追加する` : '日付を選択してください'}</button>
+          <button class="ghost full" type="button" data-act="save-draft"${state.picked.length ? '' : ' disabled'}>下書きとして保存する</button>
         </form>`;
     return `<div class="sheet-back${enter ? ' enter' : ''}" data-act="close-sheet"></div>
       <section class="sheet${enter ? ' enter' : ''}" role="dialog" aria-modal="true" aria-label="${title}">
         <span class="grabber" aria-hidden="true"></span>
         <div class="sheet-head">
-          <div class="label-row"><h2>${title}</h2>${edit ? '' : tip('選びかた', '日付を押すと何日でも選べます。曜日を押すと、その月のその曜日をまとめて選べます。')}</div>
-          <div class="head-end">${!edit && state.picked.length ? '<button class="link" data-act="pick-clear">選び直す</button>' : ''}<button class="icon close-round" data-act="close-sheet" aria-label="閉じる">${ICON.close}</button></div>
+          <div class="label-row"><h2>${title}</h2>${edit ? '' : tip('日付の選び方', '複数の日付を選択できます。曜日を押すと、その月の該当する曜日をまとめて選択できます。')}</div>
+          <div class="head-end">${!edit && state.picked.length ? '<button class="link" data-act="pick-clear">選択を解除</button>' : ''}<button class="icon close-round" data-act="close-sheet" aria-label="閉じる">${ICON.close}</button></div>
         </div>
         <div class="sheet-body">${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${body}</div>
       </section>`;
@@ -1194,10 +1194,10 @@
     const sel = other ? 'other' : (v.kind || KINDS[0]);
     return `<label class="field full">種類<select class="select" name="kindSel">${KINDS.map((k) => `<option value="${k}"${sel === k ? ' selected' : ''}>${k}</option>`).join('')}<option value="other"${other ? ' selected' : ''}>その他</option></select></label>
       <label class="field full kind-other"${other ? '' : ' hidden'}>その他の種類<input class="input" name="kindOther" value="${esc(other ? v.kind || '' : '')}" maxlength="20"></label>
-      <label class="field">開始<input class="input" type="time" name="st" data-value="${esc(v.st || '')}"></label>
-      <label class="field">終了<input class="input" type="time" name="en" data-value="${esc(v.en || '')}"></label>
+      <label class="field">開始時刻<input class="input" type="time" name="st" data-value="${esc(v.st || '')}"></label>
+      <label class="field">終了時刻<input class="input" type="time" name="en" data-value="${esc(v.en || '')}"></label>
       <label class="field full">メモ<input class="input" name="note" value="${esc(v.note || '')}" maxlength="100"></label>
-      <label class="switch full"><input type="checkbox" name="noentry"${v.noentry && v.noentry !== '0' ? ' checked' : ''}><span>出欠をとらない</span>${tip('出欠をとらない予定', '授業や祝日など、カレンダーに載せるだけの予定にします。')}</label>`;
+      <label class="switch full"><input type="checkbox" name="noentry"${v.noentry && v.noentry !== '0' ? ' checked' : ''}><span>出欠をとらない</span>${tip('出欠をとらない予定', '授業や祝日など、カレンダーに表示するだけの予定として登録します。')}</label>`;
   }
   /** 練習日をまとめて足すときの、日付を何日でも選べるカレンダー */
   function pickCalendar() {
@@ -1218,7 +1218,7 @@
         <span class="cal-title">${g.y}年${g.m}月</span>
         <button class="icon" data-act="pick-month" data-n="1" aria-label="次の月">${ICON.next}</button>
       </div>
-      <div class="cal-week">${[...WEEKDAYS].map((w, i) => `<button type="button" class="pick-wd" data-act="pick-weekday" data-wd="${i}" aria-label="${g.y}年${g.m}月の${w}曜日をまとめて選ぶ">${w}</button>`).join('')}</div>
+      <div class="cal-week">${[...WEEKDAYS].map((w, i) => `<button type="button" class="pick-wd" data-act="pick-weekday" data-wd="${i}" aria-label="${g.y}年${g.m}月の${w}曜日をまとめて選択">${w}</button>`).join('')}</div>
       <div class="cal-grid">${cells}</div>
     </div>`;
   }
@@ -1245,10 +1245,10 @@
     if (!isAdmin()) return officerMembers(a);
     const sel = state.selMembers.filter((id) => a.members.some((m) => m.id === id));
     return `<section class="card">
-        <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を消す</button>` : `<span>${a.members.length}人</span>`}</div>
+        <div class="part-head"><h2>団員</h2>${sel.length ? `<button class="ghost danger" data-act="delete-members">${sel.length}人を削除</button>` : `<span>${a.members.length}人</span>`}</div>
       </section>
       ${memberSections(a, (m) => `<div class="list-row">
-          <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選ぶ</span></label>
+          <label class="check"><input type="checkbox" data-change="sel-member" value="${esc(m.id)}"${sel.includes(m.id) ? ' checked' : ''}><span class="sr">${esc(m.name)}を選択</span></label>
           <div class="main"><b>${esc(m.name)}</b></div>
           <div class="actions">
             ${resetButton(m)}
@@ -1261,7 +1261,7 @@
         <form data-form="passphrase" class="inline">
           <label class="sr" for="passphrase">新しい合言葉</label>
           <input class="input" id="passphrase" name="passphrase" autocomplete="off" minlength="4" maxlength="64" required>
-          <button class="ghost" type="submit">変える</button>
+          <button class="ghost" type="submit">${a.open ? '変更する' : '設定する'}</button>
         </form>
       </details>`;
   }
@@ -1307,17 +1307,17 @@
     const group = (g) => `<section class="card">
         <div class="part-head"><h2>${GROUP_LABEL[g]}</h2><span>${a.parts.filter((p) => p.group === g).length}</span></div>
         ${a.parts.filter((p) => p.group === g).map((p) => `<div class="list-row"><div class="main"><b>${esc(p.id)}</b><small>${used[p.id] || 0}人</small></div>
-          <div class="actions"><button class="ghost icon danger" data-act="part-delete" data-id="${esc(p.id)}"${used[p.id] ? ' disabled' : ''} aria-label="${esc(p.id)}を消す" title="消す">${ICON.trash}</button></div></div>`).join('')}
+          <div class="actions"><button class="ghost icon danger" data-act="part-delete" data-id="${esc(p.id)}"${used[p.id] ? ' disabled' : ''} aria-label="${esc(p.id)}を削除" title="削除">${ICON.trash}</button></div></div>`).join('')}
       </section>`;
     return `${group('strings')}${group('winds')}
       <section class="card pad">
-        <div class="section-title"><h2>パートを足す</h2></div>
+        <div class="section-title"><h2>パートを追加</h2></div>
         <form data-form="part" class="inline">
-          <label class="sr" for="part-id">パートの名前</label>
+          <label class="sr" for="part-id">パート名</label>
           <input class="input" id="part-id" name="id" placeholder="Hp" maxlength="8" pattern="[A-Za-z0-9.]{1,8}" required>
-          <label class="sr" for="part-group">弦か管打</label>
+          <label class="sr" for="part-group">区分</label>
           <select class="select fit" id="part-group" name="group">${Object.entries(GROUP_LABEL).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-          <button class="ghost" type="submit">足す</button>
+          <button class="ghost" type="submit">追加する</button>
         </form>
       </section>`;
   }
@@ -1327,15 +1327,15 @@
     const thisYear = fiscalYear(state.today);
     const years = [...new Set(a.days.map((d) => fiscalYear(d.date)))].filter((y) => y < thisYear).sort((x, y) => y - x);
     return `<section class="card pad">
-        <div class="section-title"><h2>書き出し</h2><button class="ghost" data-act="export">CSV</button></div>
+        <div class="section-title"><h2>記録の書き出し</h2><button class="ghost" data-act="export">CSVを書き出す</button></div>
       </section>
       <section class="card pad">
-        <div class="section-title"><h2>年度で消す</h2></div>
+        <div class="section-title"><h2>年度ごとに削除</h2></div>
         ${years.length ? `<div class="inline">
           <label class="sr" for="year">年度</label>
           <select class="select" id="year">${years.map((y) => `<option value="${y}">${y}年度</option>`).join('')}</select>
-          <button class="ghost danger" data-act="delete-year">書き出して消す</button>
-        </div>` : '<div class="empty small">終わった年度の練習日はありません</div>'}
+          <button class="ghost danger" data-act="delete-year">書き出して削除</button>
+        </div>` : '<div class="empty small">終了した年度の練習日はありません</div>'}
       </section>`;
   }
 
@@ -1444,10 +1444,10 @@
     'close-notice': () => { state.noticeSheet = ''; state.error = ''; render(); },
     'del-notice': () => run(async () => {
       const n = (state.notices || []).find((x) => x.id === state.noticeId);
-      if (!n || !confirm(`「${n.title}」を消しますか？`)) return;
+      if (!n || !confirm(`「${n.title}」を削除しますか？`)) return;
       const r = await api('deleteNotice', { id: n.id });
       if (!check(r)) return;
-      Object.assign(state, { notices: r.notices, unread: r.unread, view: 'news', flash: '連絡を消しました' });
+      Object.assign(state, { notices: r.notices, unread: r.unread, view: 'news', flash: '連絡を削除しました' });
     }),
     'go-privacy': () => { state.view = 'privacy'; state.error = ''; state.flash = ''; render(); window.scrollTo(0, 0); },
     'go-manual': () => { state.view = 'manual'; state.flash = ''; state.error = ''; state.tempPin = null; render(); window.scrollTo(0, 0); },
@@ -1511,16 +1511,16 @@
     'passkey-create': () => run(async () => {
       const done = await createPasskey();
       if (!done) return;
-      state.flash = 'パスキーを作りました';
+      state.flash = 'パスキーを作成しました';
       if (state.view === 'offer') state.view = 'home';
     }),
     'passkey-delete': (el) => {
-      if (!confirm('このパスキーを消しますか？')) return;
+      if (!confirm('このパスキーを削除しますか？')) return;
       run(async () => {
         const r = await api('passkeyDelete', { id: el.dataset.id });
         if (!check(r)) return;
         state.passkeys = r.passkeys;
-        state.flash = 'パスキーを消しました';
+        state.flash = 'パスキーを削除しました';
       });
     },
 
@@ -1546,7 +1546,7 @@
         if (!check(r)) return;
         state.admin.drafts = r.drafts;
         await loadHome(); // ホームのカレンダーの下書きも新しくする
-        state.flash = `${dates.length}日分を下書きに保存しました`;
+        state.flash = `${dates.length}日分を下書きとして保存しました`;
         state.adminMonth = monthOf(dates[0]);
         state.picked = [];
         state.daySheet = '';
@@ -1568,7 +1568,7 @@
     },
     'publish-draft': (el) => {
       const d = (state.admin.drafts || []).find((x) => x.id === el.dataset.id);
-      if (!d || !confirm(`${dateLabel(d.date)}の下書きを公開しますか？団員に見えるようになります。`)) return;
+      if (!d || !confirm(`${dateLabel(d.date)}の下書きを公開しますか？公開すると団員に表示されます。`)) return;
       run(async () => {
         const r = await api('publishDraft', { id: d.id });
         if (!check(r)) return;
@@ -1578,7 +1578,7 @@
     },
     'delete-draft': (el) => {
       const d = (state.admin.drafts || []).find((x) => x.id === el.dataset.id);
-      if (!d || !confirm(`${dateLabel(d.date)}の下書きを消しますか？`)) return;
+      if (!d || !confirm(`${dateLabel(d.date)}の下書きを削除しますか？`)) return;
       run(async () => {
         const r = await api('deleteDraft', { id: d.id });
         if (!check(r)) return;
@@ -1599,11 +1599,11 @@
     },
     'delete-day': (el) => {
       const d = state.admin.days.find((x) => x.id === el.dataset.id);
-      if (!d || !confirm(`${dateLabel(d.date)} の練習日と、その日の出欠を消しますか？`)) return;
+      if (!d || !confirm(`${dateLabel(d.date)}の練習日と出欠を削除しますか？`)) return;
       run(async () => {
         const r = await api('deleteDay', { id: d.id });
         if (!check(r)) return;
-        state.flash = `${dateLabel(d.date)}を消しました`;
+        state.flash = `${dateLabel(d.date)}を削除しました`;
         state.undo = { id: d.id, text: state.flash };
         await reloadAll();
       });
@@ -1614,7 +1614,7 @@
       const r = await api('restoreDay', { id: el.dataset.id });
       state.undo = null;
       if (!check(r)) return;
-      state.flash = `${dateLabel(r.date)}を戻しました`;
+      state.flash = `${dateLabel(r.date)}を元に戻しました`;
       await reloadAll();
     }),
     'pick-day': (el) => { keepDraft(); const d = el.dataset.date; togglePicked([d], !state.picked.includes(d)); render(); },
@@ -1633,7 +1633,7 @@
     'pick-clear': () => { keepDraft(); state.picked = []; render(); },
     'reset-pin': (el) => {
       const m = state.admin.members.find((x) => x.id === el.dataset.id);
-      if (!m || !confirm(`${m.name}の暗証番号を仮の番号に変えますか？出欠の記録はそのまま残ります。`)) return;
+      if (!m || !confirm(`${m.name}さんの暗証番号を仮の番号に再設定しますか？出欠記録はそのまま残ります。`)) return;
       run(async () => {
         const r = await api('resetPin', { id: m.id });
         if (!check(r)) return;
@@ -1644,21 +1644,21 @@
     'delete-members': () => {
       const ids = state.selMembers.slice();
       const names = state.admin.members.filter((m) => ids.includes(m.id)).map((m) => m.name);
-      if (!ids.length || !confirm(`${names.join('、')} の${ids.length}人と、その出欠の記録を消しますか？`)) return;
+      if (!ids.length || !confirm(ids.length === 1 ? `${names[0]}さんの登録と出欠記録を削除しますか？` : `選択した${ids.length}人（${names.join('、')}）の登録と出欠記録を削除しますか？`)) return;
       run(async () => {
         const r = await api('deleteMembers', { ids });
         if (!check(r)) return;
         state.selMembers = [];
-        state.flash = `${r.deleted}人を消しました`;
+        state.flash = `${r.deleted}人の登録を削除しました`;
         await loadAdmin();
       });
     },
     'part-delete': (el) => {
-      if (!confirm(`${el.dataset.id} を消しますか？`)) return;
+      if (!confirm(`パート「${el.dataset.id}」を削除しますか？`)) return;
       run(async () => {
         const r = await api('deletePart', { id: el.dataset.id });
         if (!check(r)) return;
-        state.flash = `${el.dataset.id} を消しました`;
+        state.flash = `パート「${el.dataset.id}」を削除しました`;
         state.parts = r.parts;
         await loadAdmin();
       });
@@ -1676,10 +1676,10 @@
         download(csv.csv, `出欠_${y}年度.csv`);
         // 書き出しが済んでから尋ねる
         await new Promise((ok) => setTimeout(ok, 300));
-        if (!confirm(`${y}年度の練習日と出欠をすべて消しますか？書き出したファイルを保存したことを確かめてください。`)) return;
+        if (!confirm(`${y}年度の練習日と出欠をすべて削除しますか？書き出したファイルが保存されていることを確認してください。`)) return;
         const r = await api('deleteYear', { year: y });
         if (!check(r)) return;
-        state.flash = `${y}年度の練習日${r.deleted}日を消しました`;
+        state.flash = `${y}年度の練習日（${r.deleted}件）を削除しました`;
         await reloadAll();
       });
     },
@@ -1688,7 +1688,7 @@
   // ---------------- 送信（フォーム。data-form の名前で呼ぶ。f は欄の値） ----------------
   const FORMS = {
     'register': (f) => run(async () => {
-      if (!f.part) { state.error = 'パートを選んでください。'; return; }
+      if (!f.part) { state.error = 'パートを選択してください。'; return; }
       await signIn('register', f);
     }),
     'login': (f) => run(() => signIn('login', f)),
@@ -1696,7 +1696,7 @@
     'answer': (f) => run(async () => {
       const id = state.answerSheet;
       const d = state.days.find((x) => x.id === id);
-      if (!f.status) { state.error = '出欠を選んでください。'; return; }
+      if (!f.status) { state.error = '出欠を選択してください。'; return; }
       const r = await api('answer', { dayId: id, status: f.status, reason: f.reason || '', at: f.at || '' });
       if (!check(r)) return;
       state.answers[id] = r.answer;
@@ -1707,7 +1707,7 @@
     'pin': (f) => run(async () => {
       const r = await api('changePin', f);
       if (!check(r)) return;
-      state.flash = '暗証番号を変えました';
+      state.flash = '暗証番号を変更しました';
       state.view = 'home';
     }),
     'profile': (f) => run(async () => {
@@ -1720,7 +1720,7 @@
     'notice': (f) => run(async () => {
       const edit = state.noticeSheet === 'edit';
       const parts = f.scope === 'parts' ? [...app.querySelectorAll('form[data-form="notice"] input[name="parts"]:checked')].map((el) => el.value) : [];
-      if (f.scope === 'parts' && !parts.length) { state.error = 'パートを選んでください。'; return; }
+      if (f.scope === 'parts' && !parts.length) { state.error = '宛先のパートを選択してください。'; return; }
       const r = await api('saveNotice', { id: edit ? state.noticeId : '', title: f.title, body: f.body, parts });
       if (!check(r)) return;
       Object.assign(state, { notices: r.notices, unread: r.unread, noticeSheet: '', flash: edit ? '保存しました' : '連絡を掲載しました' });
@@ -1753,7 +1753,7 @@
       const dates = state.picked.slice();
       const r = await api('saveDays', Object.assign({}, f, { dates }));
       if (!check(r)) { state.draft = f; return; }
-      state.flash = dates.length === 1 ? `${dateLabel(dates[0])}を足しました` : `${dateLabel(dates[0])}から${dateLabel(dates[dates.length - 1])}までの${dates.length}日を足しました`;
+      state.flash = dates.length === 1 ? `${dateLabel(dates[0])}を追加しました` : `${dateLabel(dates[0])}〜${dateLabel(dates[dates.length - 1])}の${dates.length}日分を追加しました`;
       state.picked = [];
       state.daySheet = '';
       state.draft = f; // 続けて別の月も同じ種類・時刻で足せるよう残す
@@ -1762,14 +1762,15 @@
     'part': (f) => run(async () => {
       const r = await api('addPart', f);
       if (!check(r)) return;
-      state.flash = `${f.id} を足しました`;
+      state.flash = `パート「${f.id}」を追加しました`;
       state.parts = r.parts;
       await loadAdmin();
     }),
     'passphrase': (f) => run(async () => {
+      const wasOpen = !!(state.admin && state.admin.open);
       const r = await api('setPassphrase', f);
       if (!check(r)) return;
-      state.flash = '合言葉を変えました';
+      state.flash = wasOpen ? '合言葉を変更しました' : '合言葉を設定しました';
       await loadAdmin();
     }),
   };
@@ -1823,7 +1824,7 @@
     if (el.dataset.change === 'role') {
       run(async () => {
         const r = await api('setRole', { id: el.dataset.id, role: el.value });
-        if (check(r)) state.flash = '役割を変えました';
+        if (check(r)) state.flash = '役割を変更しました';
         await loadAdmin();
         if (state.me && state.me.id === el.dataset.id) await loadHome();
       });

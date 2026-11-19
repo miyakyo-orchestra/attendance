@@ -63,7 +63,7 @@ export class Store {
       if (Object.prototype.hasOwnProperty.call(PUBLIC, action)) return await PUBLIC[action].call(this, p, c);
       if (!Object.prototype.hasOwnProperty.call(PRIVATE, action)) return fail('不明な操作です。', 'BAD_REQUEST');
       const who = await this.whoAmI(c.token);
-      if (!who) return fail('ログインが切れました。もう一度ログインしてください。', 'UNAUTHORIZED');
+      if (!who) return fail('ログインの有効期限が切れました。もう一度ログインしてください。', 'UNAUTHORIZED');
       const [need, fn] = PRIVATE[action];
       if (!ALLOWED[need](who)) return fail(DENIED[need], 'FORBIDDEN');
       return await fn.call(this, p, who, c);
@@ -124,17 +124,17 @@ export class Store {
   /** 合言葉を確かめる。同じ接続元から続けて間違えたら止める */
   async checkPassphrase(input, ip) {
     const stored = this.kget('passphrase');
-    if (!stored) throw userError('まだ登録を受け付けていません。管理者に連絡してください。', 'CLOSED');
+    if (!stored) throw userError('現在、新規登録を受け付けていません。管理者に連絡してください。', 'CLOSED');
     this.checkGate(ip);
     const ok = await verifySecret(String(input || '').trim(), stored); // 設定のときと同じく前後の空白は除く
     this.checkGate(ip); // 待つあいだに同じ接続元の誤りが重なっていれば、結果を返さず止める
-    if (!ok) { this.gateFailed(ip); throw userError('合言葉が違います。', 'WRONG_PASSPHRASE'); }
+    if (!ok) { this.gateFailed(ip); throw userError('合言葉が正しくありません。', 'WRONG_PASSPHRASE'); }
     this.gatePassed(ip);
   }
   // 合言葉・管理用パスワード・ログインの誤りの回数（同じ接続元ごと）
   checkGate(ip) {
     const n = Number(this.kget('gate:' + ip) || 0);
-    if (n >= LIMITS.GATE_FAILURES) throw userError('入力の誤りが続いたため、しばらく使えません。10分ほどあけてください。', 'LOCKED');
+    if (n >= LIMITS.GATE_FAILURES) throw userError('入力の誤りが続いたため、しばらく操作できません。10分ほど時間をおいてやり直してください。', 'LOCKED');
   }
   gateFailed(ip) {
     const n = Number(this.kget('gate:' + ip) || 0) + 1;
@@ -272,7 +272,7 @@ export class Store {
     const rows = ids.map((id) => this.member(id));
     if (rows.some((m) => !m)) return fail('団員が見つかりません。', 'NOT_FOUND');
     const admins = rows.filter((m) => m.role === 'admin').length;
-    if (admins && this.adminCount() - admins < 1 && who.member) return fail('最後の管理者は消せません。', 'LAST_ADMIN');
+    if (admins && this.adminCount() - admins < 1 && who.member) return fail('最後の管理者は削除できません。', 'LAST_ADMIN');
     this.db.txn(() => {
       for (const id of ids) {
         for (const table of ['answers', 'sessions', 'passkeys', 'notice_reads']) this.db.exec(`DELETE FROM ${table} WHERE member_id = ?`, id);
@@ -298,8 +298,8 @@ const ALLOWED = {
 };
 const DENIED = {
   member: '団員としてログインしてください。',
-  officer: 'パートリーダーと管理者だけが使えます。',
-  admin: '管理者だけが使えます。',
+  officer: 'パートリーダーと管理者のみ利用できます。',
+  admin: '管理者のみ利用できます。',
 };
 
 // ---------------- ログインなしで使える操作 ----------------
@@ -313,12 +313,12 @@ const PUBLIC = {
     const { name, sei, mei } = personName(p);
     const part = String(p.part || '');
     const pin = String(p.pin || '');
-    if (!name) return fail('姓と名を入れてください。');
-    if (!this.partIds().includes(part)) return fail('パートを選んでください。');
-    if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字にしてください。');
+    if (!name) return fail('姓と名を入力してください。');
+    if (!this.partIds().includes(part)) return fail('パートを選択してください。');
+    if (!LIMITS.PIN.test(pin)) return fail('暗証番号は4〜8桁の数字で入力してください。');
     await this.checkPassphrase(p.passphrase, c.ip);
     const pinHash = await hashSecret(pin);
-    if (this.db.exec(`SELECT 1 FROM members WHERE ${SAME_NAME}`, bare(name)).length) return fail('同じ氏名の人がすでに登録しています。ログインしてください。', 'DUPLICATE');
+    if (this.db.exec(`SELECT 1 FROM members WHERE ${SAME_NAME}`, bare(name)).length) return fail('同じ氏名がすでに登録されています。ログインしてください。', 'DUPLICATE');
     const id = randomId(9);
     this.db.exec('INSERT INTO members (id, name, sei, mei, part, role, pin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       id, name, sei, mei, part, 'member', pinHash, this.stamp());
@@ -329,7 +329,7 @@ const PUBLIC = {
     // ログインは氏名を一つの欄で受ける。スペースの有無は問わない（姓と名で送られても受ける）
     const name = p.name !== undefined ? cut(bare(String(p.name)), LIMITS.NAME * 2) : personName(p).name;
     const pin = String(p.pin || '');
-    if (!name || !pin) return fail('氏名と暗証番号を入れてください。');
+    if (!name || !pin) return fail('氏名と暗証番号を入力してください。');
     // 合言葉は登録のときだけ。ログインは氏名と暗証番号で、同じ接続元からの誤りが続けば止める
     this.checkGate(c.ip);
     const found = this.db.exec(`SELECT * FROM members WHERE ${SAME_NAME}`, bare(name))[0];
@@ -339,12 +339,12 @@ const PUBLIC = {
     // （同時にたくさん送って回数の数え漏れを狙うことや、番号を変えた直後に古い番号で入ることを防ぐ）
     this.checkGate(c.ip);
     const m = found && this.member(found.id);
-    if (!m || m.pin !== found.pin) { this.gateFailed(c.ip); return fail('氏名か暗証番号が違います。', 'WRONG_PIN'); }
+    if (!m || m.pin !== found.pin) { this.gateFailed(c.ip); return fail('氏名または暗証番号が正しくありません。', 'WRONG_PIN'); }
     if (m.locked_until > this.now()) return fail(PIN_LOCKED, 'LOCKED');
     if (!ok) {
       this.gateFailed(c.ip);
       this.pinFailed(m);
-      return fail('氏名か暗証番号が違います。', 'WRONG_PIN');
+      return fail('氏名または暗証番号が正しくありません。', 'WRONG_PIN');
     }
     this.db.exec('UPDATE members SET failures = 0, locked_until = 0 WHERE id = ?', m.id);
     this.gatePassed(c.ip);
@@ -354,7 +354,7 @@ const PUBLIC = {
   /** パスキーでログインする前に、チャレンジを受け取る */
   async passkeyLoginOptions() {
     const { rpId } = this.site();
-    if (!rpId) return fail('このページではパスキーを使えません。', 'DISABLED');
+    if (!rpId) return fail('このページではパスキーを利用できません。', 'DISABLED');
     return { ok: true, challenge: this.newChallenge('login'), rpId };
   },
 
@@ -392,7 +392,7 @@ const PUBLIC = {
     const input = String(p.password || '');
     const ok = await sha256(input) === await sha256(pw); // 長さや中身で比べる時間が変わらないよう、ハッシュどうしで比べる
     this.checkGate(c.ip); // 待つあいだに同じ接続元の誤りが重なっていれば、結果を返さず止める
-    if (!ok) { this.gateFailed(c.ip); return fail('管理用パスワードが違います。', 'WRONG_PASSWORD'); }
+    if (!ok) { this.gateFailed(c.ip); return fail('管理用パスワードが正しくありません。', 'WRONG_PASSWORD'); }
     this.gatePassed(c.ip);
     return this.signIn(null);
   },
@@ -419,17 +419,17 @@ const PRIVATE = {
   answer: ['member', function (p, who) {
     const day = this.db.exec('SELECT * FROM days WHERE id = ?', String(p.dayId || ''))[0];
     if (!day || day.noentry) return fail('練習日が見つかりません。', 'NOT_FOUND');
-    if (day.date < this.today()) return fail('過ぎた練習日の出欠は変えられません。', 'PAST');
+    if (day.date < this.today()) return fail('過去の練習日の出欠は変更できません。', 'PAST');
     const status = String(p.status || '');
     // none は答えを取り消して未回答に戻す（リストの札を押し直したとき）
     if (status === 'none') {
       this.db.exec('DELETE FROM answers WHERE day_id = ? AND member_id = ?', day.id, who.member.id);
       return { ok: true, answer: { status: 'none', reason: '', at: '' } };
     }
-    if (!STATUSES.includes(status)) return fail('出欠を選んでください。');
+    if (!STATUSES.includes(status)) return fail('出欠を選択してください。');
     const reason = status === 'absent' ? cleanText(p.reason, LIMITS.REASON) : '';
     const at = status === 'late' || status === 'early' ? String(p.at || '') : '';
-    if (at && !TIME.test(at)) return fail('時刻の形が正しくありません。');
+    if (at && !TIME.test(at)) return fail('時刻の形式が正しくありません。');
     this.db.exec(`INSERT INTO answers (day_id, member_id, status, reason, at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (day_id, member_id) DO UPDATE SET status = excluded.status, reason = excluded.reason, at = excluded.at, updated_at = excluded.updated_at`,
     day.id, who.member.id, status, reason, at, this.stamp());
@@ -440,10 +440,10 @@ const PRIVATE = {
   updateProfile: ['member', function (p, who) {
     const { name, sei, mei } = personName(p);
     const part = String(p.part || '');
-    if (!name) return fail('姓と名を入れてください。');
-    if (!this.partIds().includes(part)) return fail('パートを選んでください。');
+    if (!name) return fail('姓と名を入力してください。');
+    if (!this.partIds().includes(part)) return fail('パートを選択してください。');
     const same = this.db.exec(`SELECT id FROM members WHERE ${SAME_NAME} AND id <> ?`, bare(name), who.member.id);
-    if (same.length) return fail('同じ氏名の人がすでに登録しています。', 'DUPLICATE');
+    if (same.length) return fail('同じ氏名がすでに登録されています。', 'DUPLICATE');
     this.db.exec('UPDATE members SET name = ?, sei = ?, mei = ?, part = ? WHERE id = ?', name, sei, mei, part, who.member.id);
     const m = this.member(who.member.id);
     return { ok: true, me: this.meOf({ member: m, role: m.role }) };
@@ -453,8 +453,8 @@ const PRIVATE = {
   changePin: ['member', async function (p, who) {
     const pin = String(p.pin || '');
     const next = String(p.newPin || '');
-    if (!pin) return fail('今の暗証番号を入れてください。');
-    if (!LIMITS.PIN.test(next)) return fail('新しい暗証番号は4〜8桁の数字にしてください。');
+    if (!pin) return fail('現在の暗証番号を入力してください。');
+    if (!LIMITS.PIN.test(next)) return fail('新しい暗証番号は4〜8桁の数字で入力してください。');
     const ok = await verifySecret(pin, who.member.pin);
     const nextHash = await hashSecret(next);
     // 照合のあいだに変わっているかもしれないので、読み直してから書く
@@ -463,7 +463,7 @@ const PRIVATE = {
     if (m.locked_until > this.now()) return fail(PIN_LOCKED, 'LOCKED');
     if (!ok || m.pin !== who.member.pin) {
       this.pinFailed(m); // ログインと同じく、続けて間違えたら止める
-      return fail('今の暗証番号が違います。', 'WRONG_PIN');
+      return fail('現在の暗証番号が正しくありません。', 'WRONG_PIN');
     }
     this.db.txn(() => {
       this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', nextHash, m.id);
@@ -480,7 +480,7 @@ const PRIVATE = {
   /** パスキーを作る前に、チャレンジと、作るのに要る値を受け取る */
   passkeyRegisterOptions: ['member', function (p, who) {
     const { rpId } = this.site();
-    if (!rpId) return fail('このページではパスキーを使えません。', 'DISABLED');
+    if (!rpId) return fail('このページではパスキーを利用できません。', 'DISABLED');
     const m = who.member;
     return {
       ok: true,
@@ -509,8 +509,8 @@ const PRIVATE = {
     }
     const id = toB64url(key.credId);
     if (!id || id.length > 1400) return failed();
-    if (this.passkeyList(m.id).length >= LIMITS.PASSKEYS) return fail(`パスキーは${LIMITS.PASSKEYS}個までです。使わないものを消してください。`);
-    if (this.db.exec('SELECT 1 FROM passkeys WHERE id = ?', id).length) return fail('このパスキーはすでに登録しています。', 'DUPLICATE');
+    if (this.passkeyList(m.id).length >= LIMITS.PASSKEYS) return fail(`パスキーは${LIMITS.PASSKEYS}件まで登録できます。不要なパスキーを削除してからやり直してください。`);
+    if (this.db.exec('SELECT 1 FROM passkeys WHERE id = ?', id).length) return fail('このパスキーはすでに登録されています。', 'DUPLICATE');
     this.db.exec('INSERT INTO passkeys (id, member_id, jwk, alg, created_at) VALUES (?, ?, ?, ?, ?)',
       id, m.id, JSON.stringify(key.jwk), key.alg, this.stamp());
     return { ok: true, passkeys: this.passkeyList(m.id) };
@@ -557,7 +557,7 @@ const PRIVATE = {
   saveNotice: ['officer', function (p, who) {
     const title = cleanText(String(p.title || '').replace(/\s*\n\s*/g, ' '), LIMITS.NOTICE_TITLE); // 見出しは一行
     const body = cleanText(p.body, LIMITS.NOTICE_BODY); // 本文は改行を残す
-    if (!title) return fail('見出しを入れてください。');
+    if (!title) return fail('件名を入力してください。');
     // 対象のパート。空なら全員。いまあるパートだけを、パートの一覧の順に置く
     const want = new Set(Array.isArray(p.parts) ? p.parts.map(String) : []);
     if ([...want].some((x) => !this.partIds().includes(x))) return fail('パートが見つかりません。');
@@ -567,7 +567,7 @@ const PRIVATE = {
     if (id) {
       const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
       if (!n) return fail('連絡が見つかりません。', 'NOT_FOUND');
-      if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが直せます。', 'FORBIDDEN');
+      if (!canEditNotice(who, n)) return fail('作成した本人と管理者のみ編集できます。', 'FORBIDDEN');
       this.db.exec('UPDATE notices SET title = ?, body = ?, parts = ?, updated_at = ? WHERE id = ?', title, body, parts, now, id);
     } else {
       id = randomId(9);
@@ -586,7 +586,7 @@ const PRIVATE = {
     const id = String(p.id || '');
     const n = this.db.exec('SELECT * FROM notices WHERE id = ?', id)[0];
     if (!n) return fail('連絡が見つかりません。', 'NOT_FOUND');
-    if (!canEditNotice(who, n)) return fail('書いた本人と管理者だけが消せます。', 'FORBIDDEN');
+    if (!canEditNotice(who, n)) return fail('作成した本人と管理者のみ削除できます。', 'FORBIDDEN');
     this.db.txn(() => {
       this.db.exec('DELETE FROM notice_reads WHERE notice_id = ?', id);
       this.db.exec('DELETE FROM notices WHERE id = ?', id);
@@ -605,7 +605,7 @@ const PRIVATE = {
 
   saveDay: ['officer', function (p) {
     const date = String(p.date || '');
-    if (!isDate(date)) return fail('日付を入れてください。');
+    if (!isDate(date)) return fail('日付を入力してください。');
     const f = dayFields(p);
     if (f.error) return fail(f.error);
     let id = String(p.id || '');
@@ -613,7 +613,7 @@ const PRIVATE = {
       if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) return fail('練習日が見つかりません。', 'NOT_FOUND');
       // 出欠をとらない予定に変えると、その日の出欠は消す。入っていれば、先に画面で確かめてもらう（dropAnswers）
       const n = f.noentry ? this.db.exec('SELECT COUNT(*) AS n FROM answers WHERE day_id = ?', id)[0].n : 0;
-      if (n && p.dropAnswers !== true) return fail(`${n}人の出欠も消えます。出欠をとらない予定にしますか？`, 'HAS_ANSWERS');
+      if (n && p.dropAnswers !== true) return fail(`${n}人分の出欠記録も削除されます。出欠をとらない予定に変更しますか？`, 'HAS_ANSWERS');
       this.db.txn(() => {
         if (n) this.db.exec('DELETE FROM answers WHERE day_id = ?', id);
         this.db.exec('UPDATE days SET date = ?, kind = ?, st = ?, en = ?, note = ?, noentry = ? WHERE id = ?', date, f.kind, f.st, f.en, f.note, f.noentry, id);
@@ -627,9 +627,9 @@ const PRIVATE = {
   /** 同じ種類・時刻・メモの練習日を、いくつもの日付にまとめて足す */
   saveDays: ['officer', function (p) {
     const dates = [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
-    if (!dates.length) return fail('日付を選んでください。');
-    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に足せるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
-    if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
+    if (!dates.length) return fail('日付を選択してください。');
+    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に追加できるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
+    if (!dates.every(isDate)) return fail('日付の形式が正しくありません。');
     const f = dayFields(p);
     if (f.error) return fail(f.error);
     this.db.txn(() => { for (const date of dates) this.addDay(date, f); });
@@ -643,9 +643,9 @@ const PRIVATE = {
   saveDraft: ['officer', function (p) {
     const id = String(p.id || '');
     const dates = id ? [String(p.date || '')] : [...new Set(Array.isArray(p.dates) ? p.dates.map(String) : [])].sort();
-    if (!dates.length || !dates[0]) return fail('日付を選んでください。');
-    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に選べるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
-    if (!dates.every(isDate)) return fail('日付の形が正しくありません。');
+    if (!dates.length || !dates[0]) return fail('日付を選択してください。');
+    if (dates.length > LIMITS.DAYS_AT_ONCE) return fail(`一度に選択できるのは${LIMITS.DAYS_AT_ONCE}日までです。`);
+    if (!dates.every(isDate)) return fail('日付の形式が正しくありません。');
     // 入れかけなので、出欠をとらない予定に種類がなくても置ける（公開するときに確かめる）
     const noentry = dayFields({ kind: '-', noentry: p.noentry }).noentry;
     const f = dayFields(Object.assign({}, p, { noentry: 0 }));
@@ -657,7 +657,7 @@ const PRIVATE = {
         dates[0], f.kind, f.st, f.en, f.note, noentry, at, id);
       return { ok: true, drafts: this.listDrafts() };
     }
-    if (this.db.exec('SELECT COUNT(*) AS n FROM day_drafts')[0].n + dates.length > LIMITS.DRAFTS) return fail(`下書きは${LIMITS.DRAFTS}件までです。使わない下書きを消してください。`);
+    if (this.db.exec('SELECT COUNT(*) AS n FROM day_drafts')[0].n + dates.length > LIMITS.DRAFTS) return fail(`下書きは${LIMITS.DRAFTS}件まで保存できます。不要な下書きを削除してください。`);
     this.db.txn(() => {
       for (const date of dates) {
         this.db.exec("INSERT INTO day_drafts (id, dates, date, kind, st, en, note, noentry, updated_at) VALUES (?, '[]', ?, ?, ?, ?, ?, ?, ?)",
@@ -674,7 +674,7 @@ const PRIVATE = {
     if (!d) return fail('下書きが見つかりません。', 'NOT_FOUND');
     const v = 'date' in p ? p : d;
     const date = String(v.date || '');
-    if (!isDate(date)) return fail('日付を入れてください。');
+    if (!isDate(date)) return fail('日付を入力してください。');
     const f = dayFields(v);
     if (f.error) return fail(f.error);
     let dayId = '';
@@ -702,7 +702,7 @@ const PRIVATE = {
   restoreDay: ['officer', function (p) {
     const id = String(p.id || '');
     const t = this.db.exec('SELECT * FROM trash_days WHERE id = ? AND deleted_at >= ?', id, this.now() - LIMITS.TRASH_DAYS * DAY_MS)[0];
-    if (!t) return fail('戻せる練習日が見つかりません。', 'NOT_FOUND');
+    if (!t) return fail('復元できる練習日が見つかりません。', 'NOT_FOUND');
     const d = JSON.parse(t.day);
     this.db.txn(() => {
       if (!this.db.exec('SELECT 1 FROM days WHERE id = ?', id).length) {
@@ -724,7 +724,7 @@ const PRIVATE = {
     const m = this.member(id);
     if (!m) return fail('団員が見つかりません。', 'NOT_FOUND');
     if (m.role === 'admin' && role !== 'admin' && this.adminCount() <= 1 && who.member) {
-      return fail('管理者が1人もいなくなるため、外せません。先にほかの人を管理者にしてください。', 'LAST_ADMIN');
+      return fail('管理者が1人もいなくなるため変更できません。先にほかの団員を管理者に設定してください。', 'LAST_ADMIN');
     }
     this.db.exec('UPDATE members SET role = ? WHERE id = ?', role, id);
     return { ok: true };
@@ -738,7 +738,7 @@ const PRIVATE = {
   /** 団員をまとめて消す（卒業した人など） */
   deleteMembers: ['admin', function (p, who) {
     const ids = [...new Set(Array.isArray(p.ids) ? p.ids.map(String) : [])];
-    if (!ids.length) return fail('団員を選んでください。');
+    if (!ids.length) return fail('団員を選択してください。');
     return this.removeMembers(ids, who);
   }],
 
@@ -750,7 +750,7 @@ const PRIVATE = {
     const id = String(p.id || '');
     const target = this.member(id);
     if (!target) return fail('団員が見つかりません。', 'NOT_FOUND');
-    if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
+    if (who.role !== 'admin' && target.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者のみ再設定できます。', 'FORBIDDEN');
     const pin = tempPin();
     const hash = await hashSecret(pin);
     // 計算を待つあいだに役割が変わっていることがあるので、読み直して確かめ直す
@@ -759,7 +759,7 @@ const PRIVATE = {
     const by = who.member ? this.member(who.member.id) : null;
     const role = who.member ? (by ? by.role : '') : 'admin';
     if (!isOfficer(role)) return fail(DENIED.officer, 'FORBIDDEN');
-    if (role !== 'admin' && fresh.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者だけが再設定できます。', 'FORBIDDEN');
+    if (role !== 'admin' && fresh.role !== 'member') return fail('パートリーダーと管理者の暗証番号は、管理者のみ再設定できます。', 'FORBIDDEN');
     this.db.exec('UPDATE members SET pin = ?, failures = 0, locked_until = 0 WHERE id = ?', hash, id);
     return { ok: true, name: target.name, pin };
   }],
@@ -767,9 +767,9 @@ const PRIVATE = {
   /** 年度（4月から翌年3月）の練習日と、その出欠をまとめて消す */
   deleteYear: ['admin', function (p) {
     const y = Number(p.year);
-    if (!Number.isInteger(y) || y < 2000 || y > 2100) return fail('年度を選んでください。');
+    if (!Number.isInteger(y) || y < 2000 || y > 2100) return fail('年度を選択してください。');
     const [from, to] = yearRange(y);
-    if (to >= this.today()) return fail('終わっていない年度は消せません。');
+    if (to >= this.today()) return fail('終了していない年度は削除できません。');
     const ids = this.db.txn(() => {
       const found = this.db.exec('SELECT id FROM days WHERE date BETWEEN ? AND ?', from, to).map((d) => d.id);
       this.removeDays(found);
@@ -782,11 +782,11 @@ const PRIVATE = {
   addPart: ['admin', function (p) {
     const id = String(p.id || '').trim();
     const group = String(p.group || '');
-    if (!LIMITS.PART_ID.test(id)) return fail('パートの名前は英数字8文字までにしてください。');
-    if (!GROUPS.includes(group)) return fail('弦か管打を選んでください。');
+    if (!LIMITS.PART_ID.test(id)) return fail('パート名は半角英数字8文字以内で入力してください。');
+    if (!GROUPS.includes(group)) return fail('区分（弦・管打）を選択してください。');
     const parts = this.parts().slice();
-    if (parts.some((x) => x.id.toLowerCase() === id.toLowerCase())) return fail('同じ名前のパートがあります。', 'DUPLICATE');
-    if (parts.length >= LIMITS.PART_COUNT) return fail(`パートは${LIMITS.PART_COUNT}までです。`);
+    if (parts.some((x) => x.id.toLowerCase() === id.toLowerCase())) return fail('同じパート名がすでに登録されています。', 'DUPLICATE');
+    if (parts.length >= LIMITS.PART_COUNT) return fail(`パートは最大${LIMITS.PART_COUNT}件まで登録できます。`);
     let at = parts.length;
     for (let i = parts.length - 1; i >= 0; i--) if (parts[i].group === group) { at = i + 1; break; }
     if (group === 'strings' && !parts.some((x) => x.group === 'strings')) at = 0;
@@ -801,7 +801,7 @@ const PRIVATE = {
     const parts = this.parts();
     if (!parts.some((x) => x.id === id)) return fail('パートが見つかりません。', 'NOT_FOUND');
     const n = this.db.exec('SELECT COUNT(*) AS n FROM members WHERE part = ?', id)[0].n;
-    if (n) return fail(`${id} の団員が${n}人いるため消せません。先にその人のパートを変えてください。`, 'IN_USE');
+    if (n) return fail(`${id}に所属する団員が${n}人いるため削除できません。先に該当する団員のパートを変更してください。`, 'IN_USE');
     const next = parts.filter((x) => x.id !== id);
     this.kput('parts', JSON.stringify(next));
     return { ok: true, parts: next };
@@ -810,7 +810,7 @@ const PRIVATE = {
   setPassphrase: ['admin', async function (p) {
     const v = String(p.passphrase || '').trim();
     const n = count(v);
-    if (n < LIMITS.PASSPHRASE_MIN || n > LIMITS.PASSPHRASE_MAX) return fail(`合言葉は${LIMITS.PASSPHRASE_MIN}〜${LIMITS.PASSPHRASE_MAX}文字にしてください。`);
+    if (n < LIMITS.PASSPHRASE_MIN || n > LIMITS.PASSPHRASE_MAX) return fail(`合言葉は${LIMITS.PASSPHRASE_MIN}〜${LIMITS.PASSPHRASE_MAX}文字で入力してください。`);
     this.kput('passphrase', await hashSecret(v));
     return { ok: true, open: true };
   }],
@@ -835,12 +835,12 @@ const PRIVATE = {
 function dayFields(p) {
   const st = String(p.st || '');
   const en = String(p.en || '');
-  if (st && !TIME.test(st)) return { error: '開始時刻の形が正しくありません。' };
-  if (en && !TIME.test(en)) return { error: '終了時刻の形が正しくありません。' };
+  if (st && !TIME.test(st)) return { error: '開始時刻の形式が正しくありません。' };
+  if (en && !TIME.test(en)) return { error: '終了時刻の形式が正しくありません。' };
   if (st && en && en <= st) return { error: '終了時刻は開始時刻より後にしてください。' };
   const noentry = p.noentry === true || p.noentry === 1 || p.noentry === '1' || p.noentry === 'on' ? 1 : 0;
   const kind = cleanText(p.kind, LIMITS.KIND);
-  if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入れてください。' };
+  if (noentry && !kind) return { error: '出欠をとらない予定には種類（授業・祝日など）を入力してください。' };
   return { kind, st, en, note: cleanText(p.note, LIMITS.NOTE), noentry };
 }
 /** 連絡を直したり消したりできるか。管理者と、書いた本人（パートリーダーのまま）だけ */
@@ -852,7 +852,7 @@ function canEditNotice(who, n) {
 function noticeParts(n) {
   try { const v = JSON.parse(n.parts || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
 }
-const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらく使えません。時間をあけるか、パートリーダーに暗証番号の再設定を頼んでください。';
+const PIN_LOCKED = '暗証番号の誤りが続いたため、しばらくログインできません。時間をおいてやり直すか、パートリーダーまたは管理者に再設定を依頼してください。';
 /** 管理用パスワードでのログインと、そのときのパスワードとの結び付き。印そのものと混ぜるので、置いた値からパスワードは割り出せない */
 function adminTag(token, password) { return sha256(token + '\n' + password); }
 function fail(message, code) { return { ok: false, code: code || 'BAD_REQUEST', message }; }
