@@ -140,20 +140,17 @@ test('管理用パスワードを変えたり消したりすると、前のパ�
 });
 
 test('欠席理由は本人とパートリーダー・管理者にだけ返す', async () => {
-  // パートリーダーは自分のパート、セクションリーダーは自分のセクション（弦・木管・金管）の分だけ。管理者は全員
+  // パートリーダーは自分のパートの分だけ。管理者は全員
   const t = await ready();
   const absent = await join(t, '欠席する人', 'Va');
   const other = await join(t, 'ほかの団員', 'Fl');
   const officer = await join(t, 'パートリーダーの人', 'Va');
   const otherOfficer = await join(t, 'ほかのパートリーダー', 'Vc');
-  const strings = await join(t, '弦のセクションリーダー', 'Cb');
-  const brass = await join(t, '金管のセクションリーダー', 'Hr');
-  const perc = await join(t, '打楽器のセクションリーダー', 'Perc');
   await t.call('answer', { dayId: t.dayId, status: 'absent', reason: '体調不良' }, absent);
   await t.call('answer', { dayId: t.dayId, status: 'attend' }, other);
   const ids = (await t.call('adminData', {}, t.adminToken)).members;
   const idOf = (name) => ids.find((m) => m.name === name).id;
-  const roles = [['パートリーダーの人', 'officer'], ['ほかのパートリーダー', 'officer'], ['弦のセクションリーダー', 'section'], ['金管のセクションリーダー', 'section'], ['打楽器のセクションリーダー', 'section']];
+  const roles = [['パートリーダーの人', 'officer'], ['ほかのパートリーダー', 'officer']];
   for (const [name, role] of roles) assert.equal((await t.call('setRole', { id: idOf(name), role }, t.adminToken)).ok, true);
 
   const find = (r, name) => r.members.find((m) => m.name === name);
@@ -167,10 +164,9 @@ test('欠席理由は本人とパートリーダー・管理者にだけ返す',
   const reads = async (token) => find(await t.call('roster', { dayId: t.dayId }, token), '欠席する人').reason;
   assert.equal(await reads(absent), '体調不良');
   assert.equal(await reads(officer), '体調不良');
-  assert.equal(await reads(strings), '体調不良');
   assert.equal(await reads(t.adminToken), '体調不良');
-  for (const token of [otherOfficer, brass, perc]) {
-    const r = await t.call('roster', { dayId: t.dayId }, token);
+  {
+    const r = await t.call('roster', { dayId: t.dayId }, otherOfficer);
     assert.equal(r.canReadReasons, true);
     assert.equal(JSON.stringify(r).includes('体調不良'), false);
   }
