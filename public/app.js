@@ -909,7 +909,7 @@
     // 日付の並びとカレンダーのボタンは上の帯の下の段に置き、画面を流しても上に残す
     const bar = `<div class="days-bar">
         <div class="day-chips" role="group" aria-label="練習日">${chips}</div>
-        <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選ぶ">${ICON.cal}</button>
+        <button class="cal-btn" data-act="roster-cal" aria-expanded="${state.rosterCal}" aria-label="カレンダーから選択">${ICON.cal}</button>
       </div>`;
     return page(`
       ${messages()}
