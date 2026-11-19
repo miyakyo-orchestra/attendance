@@ -74,7 +74,7 @@ export class Main {
       return json(await this.store.api(body, { token, ip }));
     } catch (e) {
       console.error(e);
-      return json({ ok: false, code: 'ERROR', message: 'サーバーで問題が起きました。時間をおいてやり直してください。' }, 500);
+      return json({ ok: false, code: 'ERROR', message: 'サーバーで問題が発生しました。しばらく時間をおいて再度お試しください。' }, 500);
     }
   }
 }
